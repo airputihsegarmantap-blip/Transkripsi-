@@ -237,3 +237,11 @@ def test_punct_fast_equals_reference():
         b.learn_text(t)
     words = " ".join(json.load(open(os.path.join(ROOT, "eval", "heldout.json")))[0]["transcript"].split()).split()
     assert b.punct.predict(words) == b.punct.predict_slow(words)
+
+
+def test_model_does_not_force_unrelated_category():
+    b = learn.Brain()
+    for i in range(40):
+        b.classify("viral", f"aplikasi smartphone android baru teknologi {i}", "teknologi")
+    y, p, src = b.classify("viral", "Anggota polres diperiksa setelah video pesta beredar", None)
+    assert y != "teknologi"

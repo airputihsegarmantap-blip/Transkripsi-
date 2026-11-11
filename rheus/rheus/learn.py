@@ -276,7 +276,7 @@ SEEDS = {
     "dance": "dance joget tarian goyang challenge tren lagu koreografi musik dancing choreography song trend",
     "hewan": "kucing anjing hewan monyet harimau burung ular binatang buaya gajah cat dog animal pet puppy kitten bear monkey zoo",
     "olahraga": "sepak bola timnas pemain gol pertandingan liga atlet badminton motogp football soccer nba nfl player match coach sports",
-    "teknologi": "teknologi aplikasi ai gadget smartphone iphone android robot internet app tech chatgpt hp ponsel",
+    "teknologi": "teknologi aplikasi gadget smartphone iphone android robot internet tech chatgpt ponsel laptop software",
     "sosial": "warga polisi kecelakaan ojol sekolah guru siswa banjir kebakaran pengendara warganet netizen pria wanita anak ditangkap korban pelaku ricuh "
               "police arrested student school woman man crash fight racist kids parents teacher",
 }
@@ -392,8 +392,12 @@ class Brain:
                 self.updated = time.time()
                 return label, 1.0, "label"
             y, p = tm.predict(text)
-        if y and p >= 0.5:
-            return y, p, "model"
+        # Tebakan model hanya diterima bila yakin DAN isi berita punya minimal satu kata kunci
+        # kategori itu — mencegah model condong ke satu kategori (bias kelas).
+        if y and p >= 0.7:
+            ws = set(content_words(text)) | set(text.lower().split())
+            if ws & SEED_SETS.get(y, set()):
+                return y, p, "model"
         return "lainnya", p, "model"
 
     def stats(self) -> dict:
