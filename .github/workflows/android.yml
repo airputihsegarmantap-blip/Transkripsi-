@@ -5,6 +5,7 @@ on:
     paths:
       - "android/**"
       - "shared/**"
+      - "web/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
@@ -30,12 +31,12 @@ jobs:
         run: gradle -p android assembleRelease --stacktrace
 
       - name: Siapkan file
-        run: cp android/app/build/outputs/apk/release/app-release.apk TranskripKu.apk
+        run: cp android/app/build/outputs/apk/release/app-release.apk SiLengkap.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TranskripKu-apk
-          path: TranskripKu.apk
+          name: SiLengkap-apk
+          path: SiLengkap.apk
 
       - name: Terbitkan ke halaman Releases (unduhan langsung dari HP)
         env:
@@ -43,8 +44,8 @@ jobs:
         run: |
           TAG=apk-terbaru
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" TranskripKu.apk \
+          gh release create "$TAG" SiLengkap.apk \
             --target "$GITHUB_SHA" \
-            --title "TranskripKu APK (build #$GITHUB_RUN_NUMBER)" \
-            --notes "Unduh **TranskripKu.apk** di bawah, lalu buka file-nya di HP Android untuk memasang. Dibangun dari branch \`$GITHUB_REF_NAME\` commit $GITHUB_SHA." \
+            --title "SiLengkap APK (build #$GITHUB_RUN_NUMBER)" \
+            --notes "Unduh **SiLengkap.apk** di bawah, lalu buka file-nya di HP Android untuk memasang. Dibangun dari branch \`$GITHUB_REF_NAME\` commit $GITHUB_SHA." \
             --prerelease
