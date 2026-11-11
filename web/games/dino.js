@@ -57,5 +57,25 @@
     };
   }
 
-  root.SiLengkapDino = { createDino };
+  function mount(el, { getBest, setBest }) {
+    el.innerHTML = `
+      <p class="text-muted" style="margin:0 0 10px">Tekan Spasi, ↑, atau ketuk area permainan untuk melompat. <span id="dinoBest" class="tag tag-accent" style="margin-left:6px">Rekor ${getBest()}</span></p>
+      <div class="card elev-md" style="padding:0;overflow:hidden;background:linear-gradient(180deg, var(--color-surface), var(--color-bg))">
+        <canvas width="900" height="260" style="width:100%;height:auto;display:block;cursor:pointer;touch-action:manipulation"></canvas>
+      </div>`;
+    const c = el.querySelector("canvas");
+    // Di layar sempit kanvas dibuat lebih sempit supaya gim tidak terlihat kecil.
+    c.width = Math.round(Math.min(900, Math.max(480, c.clientWidth * 1.5)));
+    const game = createDino(c, {
+      getBest,
+      onBest: (s) => { setBest(s); const b = el.querySelector("#dinoBest"); if (b) b.textContent = "Rekor " + s; },
+    });
+    c.addEventListener("pointerdown", (e) => { e.preventDefault(); game.jump(); });
+    const onKey = (e) => { if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); game.jump(); } };
+    document.addEventListener("keydown", onKey);
+    return { destroy() { game.stop(); document.removeEventListener("keydown", onKey); el.innerHTML = ""; } };
+  }
+
+  root.SLGames = root.SLGames || {};
+  root.SLGames.dino = { title: "Gim Dino", mount };
 })(window);

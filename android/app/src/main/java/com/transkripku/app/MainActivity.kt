@@ -18,9 +18,8 @@ import java.util.concurrent.Executors
 
 /**
  * SiLengkap: antarmuka HTML (web/ + shared/ di assets) ditampilkan di WebView.
- * Kotlin hanya menyediakan akses jaringan yang diblokir CORS untuk halaman web
- * (subtitle YouTube, RSS berita, data pasar) lewat jembatan `window.Native`.
- * Pengolahan data dikerjakan RheusInterface & TranscriptBot (JavaScript).
+ * Data diolah server RheusInterface. Kotlin hanya mengambil subtitle YouTube langsung dari HP
+ * (IP server cloud sering diblokir YouTube) dan menyediakan salin/bagikan/buka tautan.
  */
 class MainActivity : Activity() {
 
@@ -36,6 +35,7 @@ class MainActivity : Activity() {
         setContentView(web)
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
+        web.settings.mediaPlaybackRequiresUserGesture = true
         web.webChromeClient = WebChromeClient()
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
@@ -104,20 +104,6 @@ class MainActivity : Activity() {
                     reject(id, "Tidak ada koneksi internet.")
                 } catch (e: Exception) {
                     reject(id, "Gagal mengambil transkrip: ${e.message}")
-                }
-            }
-        }
-
-        /** Ambil teks dari sumber data RheusInterface (hanya host yang diizinkan). */
-        @JavascriptInterface
-        fun httpGet(id: Int, url: String) {
-            io.execute {
-                try {
-                    resolve(id, Net.get(url))
-                } catch (e: java.net.UnknownHostException) {
-                    reject(id, "Tidak ada koneksi internet.")
-                } catch (e: Exception) {
-                    reject(id, e.message ?: "Gagal mengambil data.")
                 }
             }
         }

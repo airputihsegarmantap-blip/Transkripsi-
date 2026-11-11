@@ -44,8 +44,8 @@ android {
         jvmTarget = "17"
     }
     sourceSets {
-        // Antarmuka SiLengkap (web/) + RheusInterface & TranscriptBot (shared/) dipakai
-        // bersama dengan versi web, jadi tidak ada salinan kode di folder android/.
-        getByName("main").assets.srcDirs("../../web", "../../shared")
+        // Antarmuka SiLengkap (web/) dipakai bersama dengan versi web — tidak ada salinan kode.
+        // Data diolah server RheusInterface (wajib online, kecuali menu Gim).
+        getByName("main").assets.srcDirs("../../web")
     }
 }

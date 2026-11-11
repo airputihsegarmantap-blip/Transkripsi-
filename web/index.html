@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>SiLengkap</title>
   <meta name="theme-color" content="#12131d">
-  <meta name="description" content="Transkripsi video, berita, analisa Bitcoin, dan hiburan dalam satu aplikasi.">
+  <meta name="description" content="Transkripsi video, berita, analisa Bitcoin, radio, dan gim dalam satu aplikasi.">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -36,15 +36,19 @@
       <button class="btn btn-ghost btn-icon" data-action="closeMenu" aria-label="Tutup"><i class="ph ph-x" style="font-size:18px;color:var(--color-text)"></i></button>
     </div>
     <div id="drawerItems" style="display:flex;flex-direction:column;gap:6px"></div>
+    <button class="drawer-item" data-action="openSettings" style="margin-top:auto"><i class="ph ph-gear"></i><span style="font-size:14px">Pengaturan server</span></button>
     <div class="drawer-foot"><i class="ph ph-cpu" style="color:var(--color-accent)"></i><span>Didukung <b>RheusInterface</b> &amp; TranscriptBot</span></div>
   </aside>
 
+  <div id="player" class="player hidden" role="region" aria-label="Pemutar radio"></div>
   <div id="dialog"></div>
   <div id="toast" class="toast" role="status"></div>
 
-  <script src="transcriptbot.js"></script>
-  <script src="rheus.js"></script>
-  <script src="dino.js"></script>
+  <script src="config.js"></script>
+  <script src="games/dino.js"></script>
+  <script src="games/snakes.js"></script>
+  <script src="games/sudoku.js"></script>
+  <script src="games/minesweeper.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
