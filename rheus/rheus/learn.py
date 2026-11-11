@@ -24,6 +24,7 @@ import time
 import zlib
 from collections import Counter, defaultdict
 
+import numpy as np
 from river import feature_extraction, linear_model, metrics, naive_bayes, optim
 from river.utils import Rolling
 
@@ -64,8 +65,28 @@ HASH_BITS = 18  # feature hashing: memori model tetap kecil (≤ 2^18 bobot per 
 _MASK = (1 << HASH_BITS) - 1
 
 
+_HCACHE: dict[str, int] = {}
+
+
 def _stable_hash(s: str) -> int:
     return zlib.crc32(s.encode("utf-8"))
+
+
+def _hidx(k: str) -> int:
+    """Indeks fitur ter-hash (dengan cache — kata yang sama muncul berulang kali)."""
+    v = _HCACHE.get(k)
+    if v is None:
+        if len(_HCACHE) > 500_000:
+            _HCACHE.clear()
+        v = _HCACHE[k] = zlib.crc32(k.encode("utf-8")) & _MASK
+    return v
+
+
+_SINCE_BUCKETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 18, 26)
+
+
+def _bucket(since: int) -> int:
+    return since if since < 8 else (8 if since < 12 else (12 if since < 18 else (18 if since < 26 else 26)))
 
 
 def gap_features(words: list[str], i: int, since: int) -> dict:
@@ -78,7 +99,7 @@ def _raw_gap_features(words: list[str], i: int, since: int) -> dict:
     w1 = words[i + 1] if i + 1 < len(words) else "</s>"
     wm1 = words[i - 1] if i > 0 else "<s>"
     w2 = words[i + 2] if i + 2 < len(words) else "</s>"
-    b = since if since < 8 else (8 if since < 12 else (12 if since < 18 else (18 if since < 26 else 26)))
+    b = _bucket(since)
     f = {
         "w0=" + w0: 1, "w1=" + w1: 1, "w-1=" + wm1: 1, "w2=" + w2: 1,
         "w0w1=" + w0 + "|" + w1: 1, "w-1w0=" + wm1 + "|" + w0: 1,
@@ -122,16 +143,87 @@ class PunctModel:
                 self.history.append((self.seen, round(self.f1_period.get(), 4)))
         return len(labels)
 
+    def _matrix(self) -> np.ndarray:
+        """Bobot model sebagai matriks NumPy (kelas × 2^HASH_BITS) — dibangun ulang hanya bila model berubah."""
+        if getattr(self, "_W_seen", -1) != self.seen:
+            W = np.zeros((len(LABELS), (1 << HASH_BITS) + 1), dtype=np.float32)  # +1: kolom nol untuk "fitur tidak ada"
+            for ci, lab in enumerate(LABELS):
+                wd = self.model.weights.get(lab)
+                if wd:
+                    idx = np.fromiter(wd.keys(), dtype=np.int64, count=len(wd))
+                    W[ci, idx] = np.fromiter(wd.values(), dtype=np.float32, count=len(wd))
+            self._W, self._W_seen = W, self.seen
+        return self._W
+
+    def __getstate__(self):
+        d = self.__dict__.copy()
+        d.pop("_W", None)
+        d.pop("_W_seen", None)
+        return d
+
     def predict(self, words: list[str], p_period: float = 0.42, p_comma: float = 0.45, min_len: int = 4) -> list[str]:
-        """Tebak label setiap celah. Decoding rakus dengan batas panjang kalimat."""
-        out = []
-        since = 0
+        """Tebak label setiap celah. Bagian fitur yang tidak bergantung pada tebakan sebelumnya
+        dihitung sekaligus dengan NumPy; decoding rakus hanya menambah fitur 'jarak sejak titik'."""
+        n = len(words)
+        if not n:
+            return []
+        Wz = self._matrix()
+        W = Wz
+        NONE = Wz.shape[1] - 1
+        pad = ["<s>"] + words + ["</s>", "</s>"]
+
+        def col(keys):
+            cache: dict[str, int] = {}
+            out = np.empty(len(keys), dtype=np.int64)
+            for j, k in enumerate(keys):
+                v = cache.get(k)
+                if v is None:
+                    v = cache[k] = _hidx(k)
+                out[j] = v
+            return out
+
+        w0, w1, wm1, w2 = words, pad[2:n + 2], pad[0:n], pad[3:n + 3]
+        cols = [
+            col(["w0=" + x for x in w0]), col(["w1=" + x for x in w1]), col(["w-1=" + x for x in wm1]),
+            col(["w2=" + x for x in w2]), col([a + "|" + b for a, b in zip(("w0w1=" + x for x in w0), w1)]),
+            col(["w-1w0=" + a + "|" + b for a, b in zip(wm1, w0)]), col(["suf0=" + x[-3:] for x in w0]),
+            col(["pre1=" + x[:3] for x in w1]), col(["shape0=" + _shape(x) for x in w0]), col(["shape1=" + _shape(x) for x in w1]),
+            np.full(n, _hidx("bias")),
+            np.array([_hidx("w1_discourse") if x in DISCOURSE else NONE for x in w1]),
+            np.array([_hidx("w0_stop") if x in STOP else NONE for x in w0]),
+            np.array([_hidx("w1_stop") if x in STOP else NONE for x in w1]),
+            np.array([_hidx("end") if x == "</s>" else NONE for x in w1]),
+        ]
+        static = sum(Wz[:, c] for c in cols).T  # (n, kelas)
+        since_cols = {b: W[:, _hidx(f"since={b}")] for b in _SINCE_BUCKETS}
+        out, since = [], 0
+        for i in range(n):
+            z = static[i] + since_cols[_bucket(since)]
+            z = np.exp(z - z.max())
+            p = z / z.sum()
+            pc, pp = float(p[1]), float(p[2])
+            if since + 1 >= min_len and pp >= p_period:
+                lab = "."
+            elif since >= 34 and pp >= 0.15:  # kalimat terlalu panjang: potong di kandidat terbaik
+                lab = "."
+            elif pc >= p_comma and since >= 2:
+                lab = ","
+            else:
+                lab = ""
+            out.append(lab)
+            since = 0 if lab == "." else since + 1
+        out[-1] = "."
+        return out
+
+    def predict_slow(self, words: list[str], p_period: float = 0.42, p_comma: float = 0.45, min_len: int = 4) -> list[str]:
+        """Versi rujukan (lewat River langsung) — untuk uji kesamaan hasil."""
+        out, since = [], 0
         for i in range(len(words)):
             proba = self.model.predict_proba_one(gap_features(words, i, since)) or {}
             pp, pc = proba.get(".", 0.0), proba.get(",", 0.0)
             if since + 1 >= min_len and pp >= p_period:
                 lab = "."
-            elif since >= 34 and pp >= 0.15:  # kalimat terlalu panjang: potong di kandidat terbaik
+            elif since >= 34 and pp >= 0.15:
                 lab = "."
             elif pc >= p_comma and since >= 2:
                 lab = ","
@@ -175,17 +267,18 @@ class CaseModel:
 
 # ====================================================================== kategori
 SEEDS = {
-    "militer": "militer tentara pasukan rudal perang serangan drone senjata pertahanan tank jet tempur armada angkatan bersenjata invasi gencatan",
-    "ekonomi": "ekonomi tarif inflasi bank sentral suku bunga harga minyak ekspor impor resesi pdb investasi saham pasar dagang perdagangan",
-    "diplomasi": "bilateral kunjungan kenegaraan diplomatik duta besar menteri luar negeri ktt perjanjian kerja sama hubungan kedua negara presiden bertemu",
-    "geopolitik": "geopolitik nato laut china selatan sanksi dewan keamanan pbb aliansi pengaruh kawasan perbatasan sengketa taiwan ukraina rusia",
-    "makanan": "makanan kuliner resep restoran warung masakan minuman jajanan kopi food recipe restaurant chef menu snack dessert",
-    "selebriti": "artis selebriti seleb skandal aktor aktris penyanyi cerai pacaran gosip celebrity actor actress singer scandal divorce dating rapper",
-    "dance": "dance joget tarian goyang challenge tren lagu koreografi dancing choreography song",
-    "hewan": "kucing anjing hewan monyet harimau burung ular binatang cat dog animal pet puppy kitten bear",
-    "olahraga": "sepak bola timnas pemain gol pertandingan liga atlet football soccer nba nfl player match game coach",
-    "teknologi": "teknologi aplikasi ai gadget smartphone iphone android robot internet app tech chatgpt",
-    "sosial": "warga polisi kecelakaan ojol sekolah guru siswa banjir kebakaran viral pengendara warganet netizen police crash school",
+    "militer": "militer tentara pasukan rudal perang serangan drone senjata pertahanan tank jet tempur armada angkatan bersenjata invasi gencatan bom tni",
+    "ekonomi": "ekonomi tarif inflasi bank sentral suku bunga harga minyak ekspor impor resesi pdb investasi saham pasar dagang perdagangan rupiah dolar",
+    "diplomasi": "bilateral kunjungan kenegaraan diplomatik duta besar menteri luar negeri ktt perjanjian kerja sama hubungan kedua negara bertemu delegasi",
+    "geopolitik": "geopolitik nato laut china selatan sanksi dewan keamanan pbb aliansi pengaruh kawasan perbatasan sengketa taiwan ukraina rusia iran israel",
+    "makanan": "makanan kuliner resep restoran warung masakan minuman jajanan kopi bakso mie nasi sate seblak food recipe restaurant chef menu snack dessert burger pizza cooking",
+    "selebriti": "artis selebriti seleb skandal aktor aktris penyanyi cerai pacaran gosip influencer selebgram youtuber celebrity actor actress singer scandal divorce dating rapper star",
+    "dance": "dance joget tarian goyang challenge tren lagu koreografi musik dancing choreography song trend",
+    "hewan": "kucing anjing hewan monyet harimau burung ular binatang buaya gajah cat dog animal pet puppy kitten bear monkey zoo",
+    "olahraga": "sepak bola timnas pemain gol pertandingan liga atlet badminton motogp football soccer nba nfl player match coach sports",
+    "teknologi": "teknologi aplikasi ai gadget smartphone iphone android robot internet app tech chatgpt hp ponsel",
+    "sosial": "warga polisi kecelakaan ojol sekolah guru siswa banjir kebakaran pengendara warganet netizen pria wanita anak ditangkap korban pelaku ricuh "
+              "police arrested student school woman man crash fight racist kids parents teacher",
 }
 SEED_SETS = {k: set(v.split()) for k, v in SEEDS.items()}
 
@@ -242,9 +335,10 @@ class TopicModel:
 
 # ====================================================================== otak
 class Brain:
-    VERSION = 2
+    VERSION = 3  # naikkan bila format fitur/model berubah — file otak lama otomatis diabaikan
 
     def __init__(self):
+        self.version = Brain.VERSION
         self.punct = PunctModel()
         self.case = CaseModel()
         self.topics = {
@@ -298,7 +392,7 @@ class Brain:
                 self.updated = time.time()
                 return label, 1.0, "label"
             y, p = tm.predict(text)
-        if y and p >= 0.55:
+        if y and p >= 0.5:
             return y, p, "model"
         return "lainnya", p, "model"
 
@@ -327,7 +421,7 @@ def load(*paths: str) -> Brain:
             try:
                 with open(p, "rb") as f:
                     b = pickle.load(f)
-                if isinstance(b, Brain):
+                if isinstance(b, Brain) and getattr(b, "version", 0) == Brain.VERSION:
                     return b
             except Exception:  # noqa: BLE001
                 continue

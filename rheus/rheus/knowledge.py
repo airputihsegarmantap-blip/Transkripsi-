@@ -16,6 +16,13 @@ from rank_bm25 import BM25Okapi
 
 from .text import ago, content_words
 
+# Perluasan kueri sederhana: kata umum → kata yang biasa dipakai di judul berita.
+SYNONYMS = {
+    "makanan": ["kuliner", "resep", "food", "makan"], "kuliner": ["makanan", "food"], "artis": ["selebriti", "seleb", "celebrity"],
+    "seleb": ["selebriti", "artis"], "tarian": ["dance", "joget"], "joget": ["dance"], "hewan": ["kucing", "anjing", "animal"],
+    "perang": ["militer", "serangan", "war"], "militer": ["tentara", "pasukan", "military"], "ekonomi": ["inflasi", "tarif", "economy"],
+    "kripto": ["bitcoin", "crypto", "ethereum"], "bitcoin": ["btc", "kripto"], "bola": ["sepak", "timnas", "football"],
+}
 BTC_Q = re.compile(r"\b(bitcoin|btc|kripto|crypto)\b", re.I)
 PRICE_Q = re.compile(r"\b(harga|price|berapa|naik|turun|prediksi|arah)\b", re.I)
 
@@ -47,7 +54,8 @@ class Knowledge:
 
     def add_stories(self, stories: list[dict], kind: str) -> None:
         for s in stories:
-            self.add(s["title"], s.get("excerpt", ""), s.get("source", ""), s.get("link", ""), s.get("ts", time.time()), kind)
+            extra = " ".join([s.get("categoryLabel") or "", " ".join(s.get("platformLabels") or [])]).strip()
+            self.add(s["title"], (s.get("excerpt", "") + " " + extra).strip(), s.get("source", ""), s.get("link", ""), s.get("ts", time.time()), kind)
 
     def _index(self):
         if self.dirty or self.bm25 is None:
@@ -70,6 +78,7 @@ class Knowledge:
                          f" (naik {b['model']['probs']['up']:.0%}, turun {b['model']['probs']['down']:.0%}). Ini bukan saran keuangan.")
         self._index()
         qt = content_words(q)
+        qt = qt + [syn for w in qt for syn in SYNONYMS.get(w, [])]
         sources = []
         if qt and self.docs:
             scores = self.bm25.get_scores(qt)

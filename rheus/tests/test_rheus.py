@@ -225,3 +225,15 @@ def test_backtest_incremental_equals_reference():
         t = btc.technical_all(closes, h)
         a, b = btc.backtest(closes, h, 350, t), btc.backtest_reference(closes, h, 350, t)
         assert a["calls"] == b["calls"] and abs(a["brier"] - b["brier"]) < 1e-9
+
+
+def test_punct_fast_equals_reference():
+    from rheus.learn import Brain
+
+    refs = [d["reference"] for d in json.load(open(os.path.join(ROOT, "eval", "data.json")))]
+    b = Brain()
+    for t in refs * 2:
+        b.seen_texts.clear()
+        b.learn_text(t)
+    words = " ".join(json.load(open(os.path.join(ROOT, "eval", "heldout.json")))[0]["transcript"].split()).split()
+    assert b.punct.predict(words) == b.punct.predict_slow(words)

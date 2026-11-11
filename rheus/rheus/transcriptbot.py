@@ -214,9 +214,9 @@ def clean_words(stream: list[tuple[str, float]]) -> list[tuple[str, float]]:
     return out
 
 
-def tidy(segments: list[dict], brain: Brain) -> dict:
+def tidy(segments: list[dict], brain: Brain, stream: list[tuple[str, float]] | None = None) -> dict:
     """Transkrip lengkap rapi: kalimat bertanda baca + paragraf dengan stempel waktu."""
-    stream = clean_words(_word_stream(segments))
+    stream = stream if stream is not None else clean_words(_word_stream(segments))
     if not stream:
         return {"sentences": [], "paragraphs": [], "text": ""}
     words = [w for w, _ in stream]
@@ -255,6 +255,70 @@ def _finish(ws: list[str]) -> str:
     s = re.sub(r"\s+,", ",", s)
     s = s[:1].upper() + s[1:]
     return s + "."
+
+
+# ------------------------------------------------------------------ unit kalimat untuk ringkasan
+# Pemotongan kalimat ucapan dari TranscriptBot 2.0 (terbukti stabil untuk subtitle tanpa tanda baca):
+# potong di penanda wacana, kata kerja langkah, atau kata sambung saat kalimat terlalu panjang.
+BREAK_BEFORE = sorted([p.split() for p in [
+    "yang pertama", "yang kedua", "yang ketiga", "yang keempat", "yang kelima", "yang keenam", "yang ketujuh",
+    "yang kedelapan", "yang terakhir", "pertama", "kedua", "ketiga", "keempat", "kelima", "keenam", "ketujuh",
+    "selanjutnya", "berikutnya", "kemudian", "setelah itu", "selain itu", "nah", "jadi", "kesimpulannya", "intinya",
+    "oleh karena itu", "makanya", "tapi", "tetapi", "namun", "sedangkan", "misalnya", "contohnya", "karena itu",
+    "terakhir", "semoga", "jangan lupa", "sampai jumpa", "terima kasih", "oke", "lalu", "terus", "tips dari",
+    "menurut aku", "menurut saya", "di sisi lain", "besok paginya", "setelah sarapan"]], key=len, reverse=True)
+SOFT_BREAK = {"dan", "karena", "terus", "lalu", "kemudian", "sehingga", "supaya", "agar", "jadi", "tapi", "setelah",
+              "sampai", "dengan", "untuk", "kalau", "di", "seperti", "yaitu", "lagi"}
+STEP_VERB = re.compile(r"^(siapkan|panaskan|masukkan|tambahkan|aduk|tumis|sajikan|potong|campur|rebus|goreng|kocok|tuang|"
+                       r"diamkan|simpan|hindari|lunasi|buatlah|pilih|klik|pastikan|gunakan|install|registrasi)$")
+
+
+_BREAK_BY_FIRST: dict[str, list[list[str]]] = {}
+for _m in BREAK_BEFORE:
+    _BREAK_BY_FIRST.setdefault(_m[0], []).append(_m)
+
+
+def spoken_sentences(stream: list[tuple[str, float]], min_words: int = 4, max_words: int = 28) -> list[dict]:
+    out: list[dict] = []
+    buf: list[tuple[str, float]] = []
+
+    def flush():
+        if buf:
+            out.append({"start": buf[0][1], "words": [w for w, _ in buf]})
+        buf.clear()
+
+    low = [w for w, _ in stream]
+    for i, item in enumerate(stream):
+        cands = _BREAK_BY_FIRST.get(low[i])
+        if cands and len(buf) >= min_words and any(low[i:i + len(m)] == m for m in cands):
+            flush()
+        if len(buf) >= min_words + 2 and STEP_VERB.match(low[i]):
+            flush()
+        buf.append(item)
+        if len(buf) >= max_words:
+            cut = next((k for k in range(len(buf) - 1, min_words - 1, -1) if buf[k][0] in SOFT_BREAK), -1)
+            if cut > 0:
+                rest = buf[cut:]
+                del buf[cut:]
+                flush()
+                buf.extend(rest)
+            else:
+                flush()
+    flush()
+    merged: list[dict] = []
+    for s in out:
+        if merged and len(s["words"]) < 4:
+            merged[-1]["words"] += s["words"]
+        else:
+            merged.append(s)
+    return merged
+
+
+def render_sentence(words: list[str], brain: Brain) -> str:
+    """Rapikan satu unit kalimat: koma dari model ML, huruf kapital, angka digit."""
+    labels = brain.punct.predict(words, p_period=1.1)  # di dalam unit hanya koma (titik di akhir)
+    ws = [brain.case.apply(w) + ("," if lab == "," and i < len(words) - 1 else "") for i, (w, lab) in enumerate(zip(words, labels))]
+    return _finish(ws)
 
 
 # ------------------------------------------------------------------ ringkasan
@@ -360,9 +424,26 @@ def _detect_list(stream: list[tuple[str, float]]) -> list[dict] | None:
     return items if len(items) >= 3 else None
 
 
-def summarize(segments: list[dict], brain: Brain, title: str = "", tidy_result: dict | None = None) -> dict:
-    td = tidy_result or tidy(segments, brain)
-    sents = [s for s in td["sentences"] if len(s["raw"].split()) >= 4]
+NUM_WORD = re.compile(r"\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|puluh|ratus|ribu|juta|persen|sendok|siung|menit|jam|derajat)\b|\d")
+
+
+def summarize(segments: list[dict], brain: Brain, title: str = "", stream: list[tuple[str, float]] | None = None) -> dict:
+    stream = stream if stream is not None else clean_words(_word_stream(segments))
+    units = spoken_sentences(stream)
+    rendered: dict[int, str] = {}
+
+    class _Lazy(dict):
+        """Kalimat; teks rapi (model ML) hanya dihitung untuk kalimat yang benar-benar dipakai."""
+
+        def __getitem__(self, k):
+            if k == "text":
+                i = dict.__getitem__(self, "i")
+                if i not in rendered:
+                    rendered[i] = render_sentence(units[i]["words"], brain)
+                return rendered[i]
+            return dict.__getitem__(self, k)
+
+    sents = [_Lazy(i=i, start=u["start"], raw=" ".join(u["words"])) for i, u in enumerate(units)]
     n = len(sents)
     if not n:
         return {"overview": "", "short": "", "points": [], "details": [], "isList": False, "conclusion": "", "keywords": []}
@@ -394,7 +475,7 @@ def summarize(segments: list[dict], brain: Brain, title: str = "", tidy_result: 
         sc += 0.25 * min(hits, 3) / 3
         if title_t:
             sc += 0.2 * len(title_t & ts) / len(title_t)
-        if re.search(r"\d|persen|sendok|siung|menit|jam|derajat", s["text"]):
+        if NUM_WORD.search(s["raw"]):
             sc += 0.08
         if len(toks[i]) < 4:
             sc *= 0.5
@@ -416,7 +497,6 @@ def summarize(segments: list[dict], brain: Brain, title: str = "", tidy_result: 
         return chosen
 
     order = list(range(n))
-    stream = clean_words(_word_stream(segments))
     list_items = _detect_list(stream)
 
     concl = None
@@ -499,7 +579,8 @@ def to_markdown(d: dict) -> str:
 
 
 def process(segments: list[dict], brain: Brain, title: str = "") -> dict:
-    td = tidy(segments, brain)
-    summary = summarize(segments, brain, title, td)
+    stream = clean_words(_word_stream(segments))
+    td = tidy(segments, brain, stream)
+    summary = summarize(segments, brain, title, stream)
     return {"version": VERSION, "clean": {"paragraphs": td["paragraphs"], "text": td["text"]},
             "summary": summary, "markdown": to_markdown(summary)}

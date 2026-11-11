@@ -34,19 +34,29 @@ def _clean_wiki(t: str) -> str:
 
 
 async def wiki_texts(pages: int) -> list[str]:
+    """Ambil ringkasan artikel acak Wikipedia secara sopan: berurutan, jeda kecil, coba ulang bila dibatasi."""
     out: list[str] = []
-    sem = asyncio.Semaphore(3)
-
-    async def batch():
-        async with sem:
-            r = await fetch.client().get(WIKI, headers={"User-Agent": "RheusInterface/2 (SiLengkap; pelatihan open-source)"})
-            r.raise_for_status()
-            for p in (r.json().get("query", {}).get("pages", {}) or {}).values():
-                t = _clean_wiki(p.get("extract", ""))
-                if len(t) > 200 and t.count(".") >= 2:
-                    out.append(t)
-
-    await asyncio.gather(*(batch() for _ in range(max(1, pages // 20))), return_exceptions=True)
+    seen: set[str] = set()
+    failures = 0
+    headers = {"User-Agent": "RheusInterface/2 (SiLengkap; pelatihan open-source; github.com/airputihsegarmantap-blip/Transkripsi-)"}
+    for _ in range(max(1, pages // 20)):
+        for attempt in range(4):
+            try:
+                r = await fetch.client().get(WIKI, headers=headers)
+                if r.status_code == 429 or r.status_code >= 500:
+                    raise RuntimeError(f"HTTP {r.status_code}")
+                r.raise_for_status()
+                for p in (r.json().get("query", {}).get("pages", {}) or {}).values():
+                    t = _clean_wiki(p.get("extract", ""))
+                    if len(t) > 200 and t.count(".") >= 2 and t[:80] not in seen:
+                        seen.add(t[:80])
+                        out.append(t)
+                break
+            except Exception:  # noqa: BLE001
+                failures += 1
+                await asyncio.sleep(1.5 * (attempt + 1))
+        await asyncio.sleep(0.2)
+    print(f"Wikipedia: {len(out)} teks, {failures} percobaan gagal")
     return out
 
 
