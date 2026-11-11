@@ -1,0 +1,27 @@
+name: RheusInterface (uji data sungguhan + backtest)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"   # setiap Senin, untuk mendeteksi sumber yang berubah/rusak
+  push:
+    paths:
+      - "shared/**"
+      - "eval/rheus_test.js"
+      - "eval/btc_backtest.js"
+      - ".github/workflows/rheus.yml"
+
+jobs:
+  rheus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Uji dengan data tiruan
+        run: node eval/rheus_test.js
+      - name: Uji dengan sumber internet sungguhan
+        run: node eval/rheus_test.js --live
+      - name: Backtest model arah Bitcoin
+        run: node eval/btc_backtest.js

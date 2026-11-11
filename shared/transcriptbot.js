@@ -465,11 +465,16 @@ kalian tutorial langkah`.split(/\s+/).filter(Boolean));
    * @param {{title?:string}} [opts]
    * @returns {string} ringkasan Markdown
    */
-  function summarize(segments, opts = {}) {
+  /**
+   * Ringkasan terstruktur — dipakai antarmuka SiLengkap.
+   * @returns {{overview:string, short:string, points:{start:number,label:string,text:string}[],
+   *            details:{start:number,text:string}[], isList:boolean, conclusion:string, keywords:string[]}|null}
+   */
+  function digest(segments, opts = {}) {
     const title = opts.title || "";
     const { sents, vecs, scores, phrases } = analyze(segments, title);
     const n = sents.length;
-    if (!n) return "_Transkrip terlalu pendek untuk diringkas._";
+    if (!n) return null;
 
     const order = sents.map((_, i) => i);
     const listItems = detectList(segments);
@@ -490,7 +495,7 @@ kalian tutorial langkah`.split(/\s+/).filter(Boolean));
     }
     const excl = new Set(concl === null ? [] : [concl]);
 
-    // Ringkasan singkat: kalimat pembuka + 2 kalimat terpenting (tanpa mengulang).
+    // Ringkasan singkat: kalimat pembuka + kalimat terpenting (tanpa mengulang).
     const lead = overview(sents, phrases, title);
     const shortIdx = mmr(order.filter((i) => !FLUFF.test(sents[i].text)), scores, vecs, 1, 0.65, excl);
     const exclPoints = new Set([...excl, ...shortIdx]);
@@ -501,46 +506,51 @@ kalian tutorial langkah`.split(/\s+/).filter(Boolean));
       .filter((i) => !FLUFF.test(sents[i].text) || scores[i] > 0.5)
       .sort((a, b) => a - b);
 
-    const lines = [];
-    lines.push("## Ringkasan Singkat");
-    const conclText = concl !== null ? polish(sents[concl].text, { maxWords: 26 }) : "";
-    const shortBody = listItems
-      ? [lead, `Ada ${listItems.length} poin utama yang dijelaskan.`, conclText]
-      : [lead, ...shortIdx.map((k) => polish(sents[k].text, { maxWords: 28 }))];
-    lines.push(shortBody.filter(Boolean).join(" "));
-    lines.push("");
+    const conclusion = concl !== null ? polish(sents[concl].text, { maxWords: 26 }) : "";
+    const short = (listItems
+      ? [lead, `Ada ${listItems.length} poin utama yang dijelaskan.`, conclusion]
+      : [lead, ...shortIdx.map((k) => polish(sents[k].text, { maxWords: 28 }))]
+    ).filter(Boolean).join(" ");
 
+    let points, details = [];
     if (listItems) {
-      lines.push(`## ${listItems.length} Poin Utama`);
-      for (const it of listItems) lines.push(`- **[${fmtTime(it.start)}] ${it.label}:** ${it.text}.`);
-      lines.push("");
-      // Detail tambahan yang tidak tercakup daftar.
+      points = listItems.map((it) => ({ start: it.start, label: it.label, text: it.text + "." }));
       const covered = listItems.map((it) => new Set(tokens(it.text)));
-      const extra = pointIdx.filter((i) => {
+      details = pointIdx.filter((i) => {
         const t = new Set(tokens(sents[i].text));
         if (FLUFF.test(sents[i].text) || i === concl) return false;
         return !covered.some((c) => [...t].filter((w) => c.has(w)).length / (t.size || 1) > 0.4);
-      }).slice(0, 3);
-      if (extra.length) {
+      }).slice(0, 3).map((k) => ({ start: sents[k].start, text: polish(sents[k].text) }));
+    } else {
+      points = pointIdx.map((k) => ({ start: sents[k].start, label: "", text: polish(sents[k].text) }));
+    }
+    return { overview: lead, short, points, details, isList: !!listItems, conclusion, keywords: phrases.slice(0, 8) };
+  }
+
+  /** Ringkasan dalam format Markdown. */
+  function summarize(segments, opts = {}) {
+    const d = digest(segments, opts);
+    if (!d) return "_Transkrip terlalu pendek untuk diringkas._";
+    const lines = ["## Ringkasan Singkat", d.short, ""];
+    if (d.isList) {
+      lines.push(`## ${d.points.length} Poin Utama`);
+      for (const p of d.points) lines.push(`- **[${fmtTime(p.start)}] ${p.label}:** ${p.text}`);
+      lines.push("");
+      if (d.details.length) {
         lines.push("## Detail Penting");
-        for (const k of extra) lines.push(`- **[${fmtTime(sents[k].start)}]** ${polish(sents[k].text)}`);
+        for (const p of d.details) lines.push(`- **[${fmtTime(p.start)}]** ${p.text}`);
         lines.push("");
       }
     } else {
       lines.push("## Poin-Poin Utama");
-      for (const k of pointIdx) lines.push(`- **[${fmtTime(sents[k].start)}]** ${polish(sents[k].text)}`);
+      for (const p of d.points) lines.push(`- **[${fmtTime(p.start)}]** ${p.text}`);
       lines.push("");
     }
-
-    if (concl !== null) {
-      lines.push("## Kesimpulan", conclText, "");
-    }
-    if (phrases.length) {
-      lines.push("## Kata Kunci", phrases.slice(0, 8).join(", "), "");
-    }
+    if (d.conclusion) lines.push("## Kesimpulan", d.conclusion, "");
+    if (d.keywords.length) lines.push("## Kata Kunci", d.keywords.join(", "), "");
     lines.push(`_Diringkas oleh TranscriptBot ${VERSION} (offline) — kalimat diambil dari transkrip lalu dirapikan._`);
     return lines.join("\n");
   }
 
-  return { summarize, clean, polish, numbersToDigits, fmtTime, VERSION, _analyze: analyze, _detectList: detectList };
+  return { summarize, digest, clean, polish, numbersToDigits, fmtTime, VERSION, _analyze: analyze, _detectList: detectList };
 });
