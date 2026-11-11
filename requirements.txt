@@ -1,0 +1,6 @@
+flask>=3.0
+anthropic>=2.8.0
+youtube-transcript-api>=1.2.5
+yt-dlp>=2025.1.1
+# Opsional: transkripsi audio untuk video tanpa subtitle
+# faster-whisper>=1.1.0

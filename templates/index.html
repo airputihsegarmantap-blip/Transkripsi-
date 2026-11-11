@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TranskripKu</title>
+  <link rel="icon" href="{{ url_for('static', filename='logo.jpg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="brand">
+    <img src="{{ url_for('static', filename='logo.jpg') }}" alt="Logo TranskripKu" class="logo">
+    <div>
+      <h1>TranskripKu</h1>
+      <p>Transkripsi &amp; ringkasan otomatis video YouTube berbahasa Indonesia</p>
+    </div>
+  </header>
+
+  <main>
+    <form id="form" class="card">
+      <label for="url">Link video YouTube</label>
+      <div class="row">
+        <input id="url" type="url" required placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+        <button id="go" type="submit">Proses</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </form>
+
+    <section id="video" class="card hidden">
+      <div class="video-wrap">
+        <div class="embed"><iframe id="player" title="Video YouTube" allowfullscreen></iframe></div>
+        <h2 id="title"></h2>
+        <p id="meta" class="muted"></p>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section id="summaryCard" class="card hidden">
+        <div class="card-head">
+          <h2>Ringkasan</h2>
+          <button class="ghost" data-copy="summary">Salin</button>
+        </div>
+        <div id="summary" class="prose"></div>
+      </section>
+
+      <section id="transcriptCard" class="card hidden">
+        <div class="card-head">
+          <h2>Transkrip</h2>
+          <div class="actions">
+            <label class="toggle"><input id="showTime" type="checkbox" checked> Waktu</label>
+            <button class="ghost" data-copy="transcript">Salin</button>
+            <button class="ghost" id="download">Unduh .txt</button>
+          </div>
+        </div>
+        <div id="transcript" class="transcript"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="muted">Subtitle diambil dari YouTube · Ringkasan oleh Claude</footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
