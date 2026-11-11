@@ -1,0 +1,4 @@
+# Opsional — tidak diperlukan untuk peringkas lokal / AI lokal (Ollama)
+anthropic>=2.8.0        # mesin "claude" (butuh ANTHROPIC_API_KEY sendiri)
+yt-dlp>=2025.1.1        # + faster-whisper: transkripsi audio video tanpa subtitle
+# faster-whisper>=1.1.0

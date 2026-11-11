@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TranskripKu</title>
-  <link rel="icon" href="{{ url_for('static', filename='logo.jpg') }}">
+  <meta name="theme-color" content="#0f9e7a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="{{ url_for('static', filename='icon-192.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -23,7 +26,12 @@
         <input id="url" type="url" required placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
         <button id="go" type="submit">Proses</button>
       </div>
+      <div class="engine-row">
+        <label for="engine" class="inline">Mesin ringkasan</label>
+        <select id="engine"><option value="lokal">Peringkas lokal (offline)</option></select>
+      </div>
       <p id="status" class="status" role="status"></p>
+      <button id="install" type="button" class="ghost hidden">📲 Pasang sebagai aplikasi</button>
     </form>
 
     <section id="video" class="card hidden">
@@ -57,7 +65,7 @@
     </div>
   </main>
 
-  <footer class="muted">Subtitle diambil dari YouTube · Ringkasan oleh Claude</footer>
+  <footer class="muted">Subtitle diambil dari YouTube · Berjalan di server lokal</footer>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

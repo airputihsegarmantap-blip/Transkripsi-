@@ -92,3 +92,12 @@ button.ghost {
 @keyframes blink { 50% { opacity: 0; } }
 
 footer { padding-top: 12px; padding-bottom: 28px; font-size: .85rem; text-align: center; }
+
+.engine-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+label.inline { margin: 0; font-weight: 500; font-size: .9rem; color: var(--muted); }
+select {
+  font: inherit; font-size: .9rem; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); max-width: 100%;
+}
+#install { margin-top: 10px; }
+a.ts { color: var(--accent); text-decoration: none; font-variant-numeric: tabular-nums; }

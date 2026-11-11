@@ -62,6 +62,21 @@ function renderMarkdown(md) {
   return out.join("");
 }
 
+// Ubah "[1:23]" di ringkasan menjadi tautan yang memutar video di detik itu.
+function linkTimes(html) {
+  return html.replace(/\[(\d+(?::\d{2}){1,2})\]/g, (m, t) => {
+    const sec = t.split(":").reduce((a, b) => a * 60 + Number(b), 0);
+    return `<a href="#" class="ts" data-t="${sec}">${t}</a>`;
+  });
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a.ts");
+  if (!a || !current) return;
+  e.preventDefault();
+  seek(Number(a.dataset.t));
+  $("video").scrollIntoView({ behavior: "smooth" });
+});
+
 function seek(t) {
   $("player").src = `https://www.youtube.com/embed/${current.video_id}?start=${Math.floor(t)}&autoplay=1`;
 }
@@ -93,7 +108,12 @@ async function summarize(data) {
   const res = await fetch("/api/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transcript: data.text, title: data.title }),
+    body: JSON.stringify({
+      transcript: data.text,
+      segments: data.segments,
+      title: data.title,
+      engine: $("engine").value,
+    }),
   });
   if (!res.ok || !res.body) {
     const err = await res.json().catch(() => ({}));
@@ -105,7 +125,7 @@ async function summarize(data) {
     const { value, done } = await reader.read();
     if (done) break;
     summaryText += decoder.decode(value, { stream: true });
-    out.innerHTML = renderMarkdown(summaryText);
+    out.innerHTML = linkTimes(renderMarkdown(summaryText));
   }
   out.classList.remove("cursor");
 }
@@ -175,4 +195,57 @@ $("download").addEventListener("click", () => {
   a.download = `transkrip-${current.video_id}.txt`;
   a.click();
   URL.revokeObjectURL(a.href);
+});
+
+// ---- Mesin ringkasan yang tersedia di server
+async function loadEngines() {
+  try {
+    const res = await fetch("/api/engines");
+    const { engines, default: def } = await res.json();
+    const sel = $("engine");
+    sel.innerHTML = "";
+    for (const e of engines) {
+      const opt = document.createElement("option");
+      opt.value = e.id;
+      opt.textContent = e.label;
+      sel.append(opt);
+    }
+    let saved = null;
+    try { saved = localStorage.getItem("engine"); } catch {}
+    sel.value = engines.some((e) => e.id === saved) ? saved : def;
+  } catch {}
+}
+$("engine").addEventListener("change", (e) => {
+  try { localStorage.setItem("engine", e.target.value); } catch {}
+});
+loadEngines();
+
+// ---- Link dibagikan dari aplikasi YouTube (Share -> TranskripKu)
+(function handleShare() {
+  const p = new URLSearchParams(location.search);
+  const shared = [p.get("url"), p.get("text"), p.get("title")].filter(Boolean).join(" ");
+  const m = shared.match(/https?:\/\/\S*(youtube\.com|youtu\.be)\S*/i);
+  if (m) {
+    $("url").value = m[0];
+    history.replaceState(null, "", "/");
+    $("form").requestSubmit();
+  }
+})();
+
+// ---- PWA: service worker + tombol pasang
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+let installEvent = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installEvent = e;
+  $("install").classList.remove("hidden");
+});
+$("install").addEventListener("click", async () => {
+  if (!installEvent) return;
+  installEvent.prompt();
+  await installEvent.userChoice;
+  installEvent = null;
+  $("install").classList.add("hidden");
 });

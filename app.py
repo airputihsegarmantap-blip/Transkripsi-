@@ -4,18 +4,49 @@ from __future__ import annotations
 
 import os
 
-import anthropic
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    render_template,
+    request,
+    send_from_directory,
+    stream_with_context,
+)
 
-from summarizer import stream_summary
+from summarizer import ENGINE_LABELS, available_engines, default_engine, stream_summary
 from transcriber import TranscriptError, get_transcript
 
 app = Flask(__name__)
+STATIC_DIR = os.path.join(app.root_path, "static")
 
 
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+# Service worker harus disajikan dari root agar bisa mengontrol seluruh halaman (PWA).
+@app.get("/sw.js")
+def service_worker():
+    resp = send_from_directory(STATIC_DIR, "sw.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return send_from_directory(STATIC_DIR, "manifest.webmanifest",
+                               mimetype="application/manifest+json")
+
+
+@app.get("/api/engines")
+def engines():
+    avail = available_engines()
+    return jsonify(
+        engines=[{"id": e, "label": ENGINE_LABELS[e]} for e in avail],
+        default=default_engine(avail),
+    )
 
 
 @app.post("/api/transcribe")
@@ -40,18 +71,15 @@ def summarize():
 
     def generate():
         try:
-            yield from stream_summary(transcript, data.get("title"))
-        except anthropic.AuthenticationError:
-            yield "\n\n**Error:** ANTHROPIC_API_KEY belum diatur atau tidak valid."
-        except anthropic.RateLimitError:
-            yield "\n\n**Error:** Batas penggunaan API tercapai. Coba lagi sebentar lagi."
-        except anthropic.APIStatusError as exc:
-            yield f"\n\n**Error API ({exc.status_code}):** {exc.message}"
-        except anthropic.APIConnectionError:
-            yield "\n\n**Error:** Tidak dapat terhubung ke Claude API."
-        except TypeError as exc:
-            # anthropic.Anthropic() tanpa kredensial apa pun
-            yield f"\n\n**Error:** {exc}"
+            yield from stream_summary(
+                transcript,
+                segments=data.get("segments"),
+                title=data.get("title"),
+                engine=data.get("engine"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            app.logger.exception("Ringkasan gagal")
+            yield f"\n\n**Error:** {type(exc).__name__}: {exc}"
 
     return Response(
         stream_with_context(generate()),
@@ -61,5 +89,7 @@ def summarize():
 
 
 if __name__ == "__main__":
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "5000"))
-    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_DEBUG") == "1")
+    print(f"\n  TranskripKu berjalan di  http://localhost:{port}\n")
+    app.run(host=host, port=port, debug=os.environ.get("FLASK_DEBUG") == "1", threaded=True)
