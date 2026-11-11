@@ -461,6 +461,7 @@ function viewBtc() {
             <div style="height:6px;border-radius:6px;background:var(--color-neutral-800);overflow:hidden"><div style="height:100%;border-radius:6px;background:${p.color};width:${(p.p * 100).toFixed(1)}%"></div></div>
           </div>`).join("")}
         <span class="card-meta" style="line-height:1.5">${esc(hist)} Probabilitas adalah frekuensi historis, bukan jaminan.</span>
+        ${m.skill ? `<span class="card-meta" style="line-height:1.5"><i class="ph ph-flask"></i>Uji balik otomatis ${m.skill.days} hari terakhir: tebakan arah benar ${Number.isFinite(m.skill.accuracy) ? pct(m.skill.accuracy) : "—"} dari ${m.skill.calls} kali. ${m.skill.skilled ? "Model sedikit lebih baik dari tebakan dasar." : "Model belum terbukti lebih baik dari tebakan dasar untuk rentang ini."}</span>` : ""}
       </div>
 
       <div class="card elev-sm" style="padding:18px;gap:10px;grid-column:1/-1">

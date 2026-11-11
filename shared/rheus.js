@@ -404,6 +404,30 @@
     };
   }
 
+  /**
+   * Uji balik walk-forward: pada setiap hari t (sejak `from`), kalibrasi hanya dari data
+   * sebelum t, lalu bandingkan dengan kenyataan h hari kemudian.
+   */
+  function backtest(closes, h, from = 330, scores = null) {
+    scores = scores || allScores(closes, h);
+    let n = 0, hit = 0, total = 0, brier = 0, brierBase = 0;
+    for (let t = Math.max(330, from); t + h < closes.length; t++) {
+      const cal = calibrate(closes, h, scores, t + 1);
+      if (!cal) continue;
+      const m = model(closes.slice(0, t + 1), h, {}, cal);
+      const ret = Math.log(closes[t + h] / closes[t]);
+      const band = 0.25 * scores[t].vol * Math.sqrt(h);
+      const actual = ret > band ? "up" : ret < -band ? "down" : "side";
+      const o = { up: +(actual === "up"), side: +(actual === "side"), down: +(actual === "down") };
+      brier += (m.probs.up - o.up) ** 2 + (m.probs.side - o.side) ** 2 + (m.probs.down - o.down) ** 2;
+      brierBase += (cal.base.up - o.up) ** 2 + (cal.base.side - o.side) ** 2 + (cal.base.down - o.down) ** 2;
+      total++;
+      if (m.direction !== "side") { n++; hit += (m.direction === "up") === (ret > 0); }
+    }
+    return { days: total, calls: n, accuracy: n ? hit / n : NaN, brier: brier / (total || 1), brierBase: brierBase / (total || 1),
+      skilled: total > 30 && brier < brierBase * 0.99 };
+  }
+
   const TFS = {
     "24j": { label: "24 jam", h: 1, interval: 60, bars: 24 },
     "7h": { label: "7 hari", h: 7, interval: 240, bars: 42 },
@@ -441,7 +465,13 @@
     const fundRate = val(funding) && val(funding).data && val(funding).data[0] ? +val(funding).data[0].fundingRate : NaN;
     const dom = val(global) && val(global).data && val(global).data.market_cap_percentage && val(global).data.market_cap_percentage.btc;
 
-    const m = model(closes, tf.h, { fng: fngVal, funding: fundRate });
+    const scores = allScores(closes, tf.h);
+    const m = model(closes, tf.h, { fng: fngVal, funding: fundRate }, calibrate(closes, tf.h, scores));
+    // Uji balik otomatis ±250 hari terakhir: kalau model tidak terbukti lebih baik dari
+    // tebakan dasar, keyakinan diturunkan ke "rendah" agar tidak menyesatkan.
+    const skill = backtest(closes, tf.h, closes.length - 250, scores);
+    if (!skill.skilled) m.confidence = "rendah";
+    m.skill = skill;
     const series = (val(bars) || dailyBars).slice(-tf.bars);
     const hi = Math.max(...series.map((b) => b.h)), lo = Math.min(...series.map((b) => b.l));
     const first = series[0].o, last = m.price;
@@ -495,7 +525,7 @@
 
   return {
     VERSION, configure, news, explain, bitcoin, model, transcribe, parseFeed, rank,
-    _calibrate: calibrate, _allScores: allScores, _technical: technical,
+    _calibrate: calibrate, _allScores: allScores, _technical: technical, backtest,
     channels: Object.keys(CHANNELS), TFS, log: () => log.slice(), _ago: ago,
   };
 });

@@ -12,6 +12,11 @@ on:
 permissions:
   contents: write
 
+# Satu build per branch; build lama dibatalkan agar rilis "apk-terbaru" tidak bentrok.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
