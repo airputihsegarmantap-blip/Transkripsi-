@@ -1,0 +1,11 @@
+# Blueprint Render (paket gratis): https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: transkripku
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      # Isi kalau YouTube memblokir IP server (opsional):
+      - key: YT_PROXY_URL
+        sync: false

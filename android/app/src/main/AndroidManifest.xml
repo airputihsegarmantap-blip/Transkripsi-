@@ -8,13 +8,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:largeHeap="true"
         android:theme="@style/AppTheme">
-
-        <!-- Akselerasi GPU opsional untuk LLM (MediaPipe) -->
-        <uses-native-library android:name="libOpenCL.so" android:required="false" />
-        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
-        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"

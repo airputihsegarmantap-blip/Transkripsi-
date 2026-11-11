@@ -20,10 +20,13 @@ from dataclasses import dataclass, field
 
 from youtube_transcript_api import (
     CouldNotRetrieveTranscript,
+    IpBlocked,
     NoTranscriptFound,
+    RequestBlocked,
     TranscriptsDisabled,
     YouTubeTranscriptApi,
 )
+from youtube_transcript_api.proxies import GenericProxyConfig, WebshareProxyConfig
 
 ID_LANGS = ["id", "in"]  # "in" adalah kode lama untuk Bahasa Indonesia
 
@@ -89,8 +92,24 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _proxy_config():
+    """Proxy opsional — berguna di hosting cloud karena YouTube sering memblokir IP server.
+
+    - YT_PROXY_URL="http://user:pass@host:port"  (proxy HTTP apa pun)
+    - WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD  (proxy residensial Webshare)
+    """
+    ws_user = os.environ.get("WEBSHARE_PROXY_USERNAME")
+    ws_pass = os.environ.get("WEBSHARE_PROXY_PASSWORD")
+    if ws_user and ws_pass:
+        return WebshareProxyConfig(proxy_username=ws_user, proxy_password=ws_pass)
+    url = os.environ.get("YT_PROXY_URL")
+    if url:
+        return GenericProxyConfig(http_url=url, https_url=url)
+    return None
+
+
 def _from_youtube(video_id: str) -> TranscriptResult:
-    api = YouTubeTranscriptApi()
+    api = YouTubeTranscriptApi(proxy_config=_proxy_config())
     transcripts = api.list(video_id)
 
     chosen = None
@@ -136,8 +155,7 @@ def _from_whisper(video_id: str) -> TranscriptResult:
         from faster_whisper import WhisperModel  # type: ignore
     except ImportError as exc:
         raise TranscriptError(
-            "Video ini tidak punya subtitle. Pasang `faster-whisper` (lihat README) "
-            "agar audio bisa ditranskripsi otomatis."
+            "Video ini tidak punya subtitle, jadi belum bisa ditranskripsi."
         ) from exc
 
     import yt_dlp
@@ -187,6 +205,12 @@ def get_transcript(url_or_id: str) -> TranscriptResult:
         result = _from_youtube(video_id)
     except (TranscriptsDisabled, NoTranscriptFound):
         result = _from_whisper(video_id)
+    except (RequestBlocked, IpBlocked) as exc:
+        raise TranscriptError(
+            "YouTube memblokir permintaan dari server ini (umum terjadi di hosting cloud). "
+            "Atur proxy lewat YT_PROXY_URL / WEBSHARE_PROXY_* atau pakai aplikasi Android "
+            "yang mengambil subtitle langsung dari HP."
+        ) from exc
     except CouldNotRetrieveTranscript as exc:
         raise TranscriptError(
             "Gagal mengambil transkrip dari YouTube. Pastikan video publik dan coba lagi. "

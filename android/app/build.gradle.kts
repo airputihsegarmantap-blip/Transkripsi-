@@ -43,12 +43,8 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-    packaging {
-        jniLibs { useLegacyPackaging = true }
+    sourceSets {
+        // TranscriptBot dipakai bersama dengan versi web: ../../shared/transcriptbot.js
+        getByName("main").assets.srcDirs("src/main/assets", "../../shared")
     }
-}
-
-dependencies {
-    // LLM di perangkat (offline) — https://ai.google.dev/edge/mediapipe/solutions/genai/llm_inference/android
-    implementation("com.google.mediapipe:tasks-genai:0.10.24")
 }

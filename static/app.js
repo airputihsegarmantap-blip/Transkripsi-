@@ -98,36 +98,11 @@ function renderTranscript(data) {
   }
 }
 
-async function summarize(data) {
+function summarize(data) {
   $("summaryCard").classList.remove("hidden");
-  const out = $("summary");
-  out.innerHTML = "";
-  out.classList.add("cursor");
-  summaryText = "";
-
-  const res = await fetch("/api/summarize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      transcript: data.text,
-      segments: data.segments,
-      title: data.title,
-      engine: $("engine").value,
-    }),
-  });
-  if (!res.ok || !res.body) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Gagal membuat ringkasan.");
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    summaryText += decoder.decode(value, { stream: true });
-    out.innerHTML = linkTimes(renderMarkdown(summaryText));
-  }
-  out.classList.remove("cursor");
+  // TranscriptBot berjalan di browser (offline) — file yang sama dipakai aplikasi Android.
+  summaryText = TranscriptBot.summarize(data.segments, { title: data.title });
+  $("summary").innerHTML = linkTimes(renderMarkdown(summaryText));
 }
 
 $("form").addEventListener("submit", async (e) => {
@@ -159,8 +134,8 @@ $("form").addEventListener("submit", async (e) => {
     renderTranscript(data);
     $("transcriptCard").classList.remove("hidden");
 
-    setStatus("Membuat ringkasan…");
-    await summarize(data);
+    setStatus("TranscriptBot sedang meringkas…");
+    summarize(data);
     setStatus("Selesai ✓");
   } catch (err) {
     setStatus(err.message, true);
@@ -196,29 +171,6 @@ $("download").addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(a.href);
 });
-
-// ---- Mesin ringkasan yang tersedia di server
-async function loadEngines() {
-  try {
-    const res = await fetch("/api/engines");
-    const { engines, default: def } = await res.json();
-    const sel = $("engine");
-    sel.innerHTML = "";
-    for (const e of engines) {
-      const opt = document.createElement("option");
-      opt.value = e.id;
-      opt.textContent = e.label;
-      sel.append(opt);
-    }
-    let saved = null;
-    try { saved = localStorage.getItem("engine"); } catch {}
-    sel.value = engines.some((e) => e.id === saved) ? saved : def;
-  } catch {}
-}
-$("engine").addEventListener("change", (e) => {
-  try { localStorage.setItem("engine", e.target.value); } catch {}
-});
-loadEngines();
 
 // ---- Link dibagikan dari aplikasi YouTube (Share -> TranskripKu)
 (function handleShare() {

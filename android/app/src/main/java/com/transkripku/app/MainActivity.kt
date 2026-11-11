@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -19,22 +18,19 @@ import java.util.concurrent.Executors
 
 /**
  * Aplikasi menampilkan antarmuka HTML (assets/www) di WebView.
- * Pekerjaan yang tidak bisa dilakukan halaman web (mengambil subtitle YouTube,
- * menjalankan LLM) dikerjakan Kotlin lewat jembatan `window.Native`.
+ * Mengambil subtitle YouTube (yang diblokir CORS untuk halaman web) dikerjakan Kotlin
+ * lewat jembatan `window.Native`. Peringkasan dikerjakan TranscriptBot (JavaScript, offline).
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
-    private lateinit var llm: LocalLlm
     private val io = Executors.newCachedThreadPool()
-    private val ai = Executors.newSingleThreadExecutor()
     private var pendingShare: String? = null
     private var pageReady = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        llm = LocalLlm(applicationContext)
         web = WebView(this)
         setContentView(web)
         web.settings.javaScriptEnabled = true
@@ -74,9 +70,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        llm.close()
         io.shutdownNow()
-        ai.shutdownNow()
         web.destroy()
         super.onDestroy()
     }
@@ -94,11 +88,6 @@ class MainActivity : Activity() {
     private fun emit(event: String, data: JSONObject) =
         js("window.Bridge && Bridge.emit(${JSONObject.quote(event)}, ${JSONObject.quote(data.toString())})")
 
-    private fun keepScreenOn(on: Boolean) = runOnUiThread {
-        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-
     // --- Jembatan JavaScript -> Kotlin ------------------------------------------------
 
     inner class Bridge {
@@ -113,53 +102,6 @@ class MainActivity : Activity() {
                     reject(id, "Tidak ada koneksi internet.")
                 } catch (e: Exception) {
                     reject(id, "Gagal mengambil transkrip: ${e.message}")
-                }
-            }
-        }
-
-        @JavascriptInterface
-        fun modelStatus(): String = JSONObject()
-            .put("ready", llm.isReady())
-            .put("downloading", llm.downloading)
-            .put("sizeBytes", llm.sizeBytes())
-            .put("name", LocalLlm.MODEL_NAME)
-            .toString()
-
-        @JavascriptInterface
-        fun downloadModel(id: Int) {
-            io.execute {
-                keepScreenOn(true)
-                try {
-                    llm.download { done, total ->
-                        emit("download", JSONObject().put("done", done).put("total", total))
-                    }
-                    resolve(id, modelStatus())
-                } catch (e: Exception) {
-                    reject(id, e.message ?: "Gagal mengunduh model.")
-                } finally {
-                    keepScreenOn(false)
-                }
-            }
-        }
-
-        @JavascriptInterface
-        fun cancelDownload() = llm.cancelDownload()
-
-        @JavascriptInterface
-        fun deleteModel() {
-            ai.execute { llm.delete() }
-        }
-
-        @JavascriptInterface
-        fun generate(id: Int, system: String, user: String) {
-            ai.execute {
-                keepScreenOn(true)
-                try {
-                    resolve(id, llm.generate(system, user))
-                } catch (e: Throwable) {
-                    reject(id, "AI gagal berjalan: ${e.message ?: e.javaClass.simpleName}")
-                } finally {
-                    keepScreenOn(false)
                 }
             }
         }

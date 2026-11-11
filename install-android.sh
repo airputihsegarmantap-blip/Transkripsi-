@@ -1,7 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Pemasang TranskripKu untuk Android (Termux).
-# Pakai:  bash install-android.sh          -> pasang aplikasi (peringkas lokal)
-#         bash install-android.sh --ai     -> + pasang AI lokal (Ollama + model kecil)
+# Pakai:  bash install-android.sh
 set -e
 cd "$(dirname "$0")"
 
@@ -12,13 +11,6 @@ pkg install -y python termux-api curl
 echo "==> Memasang library Python"
 pip install -r requirements.txt
 
-if [ "$1" = "--ai" ]; then
-  echo "==> Memasang Ollama + model ${OLLAMA_MODEL:-qwen2.5:1.5b} (±1 GB, butuh internet sekali saja)"
-  pkg install -y ollama
-  (ollama serve >/dev/null 2>&1 &)
-  sleep 5
-  ollama pull "${OLLAMA_MODEL:-qwen2.5:1.5b}"
-fi
 
 # Pintasan: ketik `transkripku` dari mana saja di Termux
 mkdir -p "$PREFIX/bin"

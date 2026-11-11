@@ -2,7 +2,11 @@
 
 <img src="static/icon-192.png" alt="Logo TranskripKu" width="96">
 
-Aplikasi untuk **mentranskripsi video YouTube berbahasa Indonesia secara otomatis** dan langsung membuat **ringkasannya**. Aplikasi ini berjalan di **server lokal** (bisa langsung di HP Android) dan **gratis tanpa API key**.
+Aplikasi untuk **mentranskripsi video YouTube berbahasa Indonesia secara otomatis** dan langsung membuat **ringkasannya** dengan **TranscriptBot**, mesin peringkas buatan sendiri yang berjalan offline, gratis, dan tanpa API key.
+
+Tersedia dalam dua bentuk:
+- **Aplikasi Android (APK)**: tanpa server, subtitle diambil langsung dari HP.
+- **Aplikasi web**: bisa dihosting gratis secara online (Render, Koyeb, Hugging Face Spaces) atau dijalankan di komputer/HP sendiri.
 
 ## Fitur
 
@@ -11,100 +15,113 @@ Aplikasi untuk **mentranskripsi video YouTube berbahasa Indonesia secara otomati
   1. subtitle Indonesia buatan kreator,
   2. subtitle Indonesia otomatis dari YouTube,
   3. subtitle bahasa lain yang diterjemahkan ke Indonesia.
-- Tiga pilihan **mesin ringkasan**:
-
-  | Mesin | Biaya | Internet | Keterangan |
-  |---|---|---|---|
-  | **Peringkas lokal** (bawaan) | Gratis | Tidak perlu | Buatan sendiri, Python murni, ±0,3 detik untuk 14.000 kata. Mengambil kalimat terpenting dari transkrip. |
-  | **AI lokal (Ollama)** | Gratis | Hanya saat unduh model | Model open-source kecil (bawaan `qwen2.5:1.5b`, ±1 GB) berjalan offline di perangkatmu dan menulis ringkasan dengan kalimatnya sendiri. |
-  | **Claude API** | Berbayar | Perlu | Opsional, pakai `ANTHROPIC_API_KEY` milikmu sendiri. Kualitas terbaik. |
-
-- Ringkasan berisi: ringkasan singkat, poin-poin utama (dengan stempel waktu yang bisa diklik), kesimpulan, dan kata kunci.
-- Transkrip lengkap dengan stempel waktu, plus tombol salin dan unduh `.txt`.
-- **Bisa dipasang sebagai aplikasi (PWA)**: muncul di layar utama dengan logo sendiri dan terbuka layar penuh.
+- Ringkasan berisi ringkasan singkat, poin-poin utama (dengan stempel waktu yang bisa diklik), kesimpulan, dan kata kunci.
+- Transkrip lengkap dengan stempel waktu, plus tombol salin, bagikan, dan unduh.
 
 ---
 
-## 📲 Aplikasi Android (APK) — tanpa server (disarankan)
+## 🤖 TranscriptBot
 
-1. Di HP, buka halaman **Releases** repo ini: `https://github.com/airputihsegarmantap-blip/Transkripsi-/releases`. Unduh **TranskripKu.apk** dari rilis "TranskripKu APK".
-2. Buka file APK-nya. Kalau Android meminta, izinkan **"Instal aplikasi tidak dikenal"** untuk browser/file manager.
+Mesin peringkas di `shared/transcriptbot.js`. Satu file yang sama dipakai oleh APK dan versi web. Ukurannya ±28 KB, JavaScript murni, tanpa model AI.
+
+Cara kerjanya:
+1. **Membersihkan bahasa lisan**: membuang kata pengisi ("eh", "gitu", "ya kan", "guys"), kata yang terulang, dan mengubah kata tidak baku ("nggak" → "tidak", "aja" → "saja").
+2. **Mengubah angka dalam kata menjadi digit**: "lima puluh tiga puluh dua puluh" → "50/30/20", "lima puluh persen" → "50%", "tiga sampai enam" → "3–6".
+3. **Memotong kalimat** dari subtitle tanpa tanda baca memakai penanda wacana ("yang kedua", "jadi", "setelah itu") dan kata kerja langkah ("tambahkan", "masukkan").
+4. **Menilai kalimat** dengan **TextRank** (PageRank di graf kemiripan TF-IDF), ditambah bobot frasa kunci, kata judul, dan informasi konkret (angka, takaran). Basa-basi pembuka dan penutup diberi nilai rendah.
+5. **Memilih kalimat dengan MMR** supaya poin tidak saling mengulang dan tersebar di seluruh video.
+6. **Mendeteksi struktur daftar** ("yang pertama… kedua… ketiga…") lalu menyajikannya sebagai daftar bernomor.
+7. **Merapikan kalimat**: memendekkan di batas klausa, membuang penutup video, dan membuat kalimat pembuka "Video ini membahas …".
+
+### Hasil uji
+
+Uji ada di folder `eval/`, dijalankan dengan `node eval/run_eval.js`. Ringkasan dibandingkan dengan ringkasan acuan tulisan manusia memakai **ROUGE** (semakin tinggi semakin baik).
+
+| Set uji | Mesin | ROUGE-1 | ROUGE-2 | ROUGE-L | Kata pengisi | Pengulangan |
+|---|---|---|---|---|---|---|
+| 4 video (dipakai untuk menyetel) | Peringkas lama | 45,7 | 24,2 | 33,8 | 3,8 | 25,8% |
+| | **TranscriptBot** | **54,3** | **28,5** | **43,6** | **0** | **13,1%** |
+| 2 video baru (tidak pernah dipakai menyetel) | Peringkas lama | 49,0 | 29,0 | 36,4 | 4,5 | 28,8% |
+| | **TranscriptBot** | **55,5** | **37,3** | **49,5** | **0** | **21,2%** |
+
+Batas atas teoretis (`node eval/oracle.js`) untuk peringkas yang memilih kalimat dari transkrip adalah ROUGE-2 ≈ 38. Artinya angka TranscriptBot sudah mendekati batas maksimal metode ini.
+
+---
+
+## 📲 Aplikasi Android (APK) — tanpa server
+
+1. Di HP, buka **https://github.com/airputihsegarmantap-blip/Transkripsi-/releases/tag/apk-terbaru** dan unduh **TranskripKu.apk**.
+2. Buka file APK-nya. Kalau Android bertanya, izinkan **"Instal aplikasi tidak dikenal"**.
 3. Buka TranskripKu, tempel link YouTube, lalu ketuk **Proses**. Bisa juga dari aplikasi YouTube: **Bagikan → TranskripKu**.
 
-Mesin ringkasan di APK:
-- **Cepat**: peringkas offline buatan sendiri, langsung jalan tanpa unduhan apa pun.
-- **AI**: LLM kecil open-source **Qwen2.5 0.5B** yang berjalan **offline di HP** (MediaPipe LLM Inference). Ketuk *Unduh model AI* sekali (547 MB, pakai Wi-Fi). Disarankan RAM ≥ 4 GB. Transkrip panjang dipadatkan dulu ke kalimat terpenting sebelum diringkas AI.
-
-Kode sumber ada di folder `android/`. APK dibangun otomatis oleh GitHub Actions (`.github/workflows/android.yml`) setiap ada perubahan di folder itu.
+Kode sumbernya ada di folder `android/`. APK dibangun otomatis oleh GitHub Actions setiap ada perubahan di `android/` atau `shared/`.
 
 ---
 
-## 📱 Alternatif: server lokal di Android (Termux)
+## 🌐 Hosting gratis secara online
 
-1. Install **Termux** dari F-Droid: https://f-droid.org/packages/com.termux/
-   (versi di Play Store sudah usang). Agar browser bisa dibuka otomatis, install juga **Termux:API** dari F-Droid.
-2. Buka Termux, lalu jalankan:
-   ```bash
-   pkg install -y git
-   git clone https://github.com/airputihsegarmantap-blip/Transkripsi-.git
-   cd Transkripsi-
-   bash install-android.sh
-   ```
-   Kalau ingin juga memasang AI lokal (HP dengan RAM ≥ 4 GB, butuh ±1 GB ruang), pakai `bash install-android.sh --ai`.
-3. Jalankan aplikasinya:
-   ```bash
-   transkripku
-   ```
-   Browser akan terbuka otomatis di **http://localhost:5000**.
-4. Di Chrome, ketuk **⋮ → Instal aplikasi** (atau **Tambahkan ke layar utama**). Mulai sekarang TranskripKu ada di layar utama dengan logonya sendiri.
+Repo ini sudah berisi **`Dockerfile`** dan **`render.yaml`**, jadi bisa langsung dihosting.
 
-> Server harus tetap berjalan di Termux saat aplikasi dipakai. Cukup buka Termux, ketik `transkripku`, lalu buka aplikasinya dari layar utama.
+### Pilihan A: Render (paling mudah)
+1. Daftar di https://render.com memakai akun GitHub.
+2. Klik **New → Blueprint**, pilih repo **Transkripsi-**. Render membaca `render.yaml` otomatis.
+   (Atau **New → Web Service**, pilih repo, Runtime **Docker**, Instance type **Free**.)
+3. Klik **Deploy**. Beberapa menit kemudian kamu mendapat alamat seperti `https://transkripku.onrender.com`.
 
-**Model AI lain** (atur sebelum `--ai` atau sebelum menjalankan `transkripku`):
-```bash
-export OLLAMA_MODEL=qwen2.5:0.5b   # paling ringan (±400 MB), untuk HP RAM kecil
-export OLLAMA_MODEL=qwen2.5:3b     # lebih pintar, butuh RAM ≥ 6 GB
-ollama pull $OLLAMA_MODEL
-```
+Catatan paket gratis Render: server tidur setelah 15 menit tidak dipakai, dan bangun lagi dalam ±1 menit saat dibuka.
 
-## 💻 Pasang di Komputer (Windows / Mac / Linux)
+### Pilihan B: Hugging Face Spaces
+1. Daftar di https://huggingface.co, lalu klik **New Space**, pilih SDK **Docker** dan hardware **CPU basic (free)**.
+2. Upload isi repo ini, atau hubungkan lewat git. Port 7860 sudah diatur di `Dockerfile`.
+3. Space akan dibangun otomatis dan bisa dibuka di `https://huggingface.co/spaces/<nama>/<space>`.
+
+### Pilihan C: Koyeb
+1. Daftar di https://www.koyeb.com, lalu klik **Create Web Service → GitHub**, pilih repo.
+2. Builder **Dockerfile**, instance **Free**, port **7860**, lalu klik **Deploy**.
+
+### ⚠️ Penting: YouTube sering memblokir IP server cloud
+Di hosting, permintaan subtitle bisa ditolak YouTube ("YouTube memblokir permintaan dari server ini"). Solusinya:
+- Atur proxy lewat environment variable di dashboard hosting:
+  - `YT_PROXY_URL=http://user:pass@host:port` (proxy HTTP apa pun), atau
+  - `WEBSHARE_PROXY_USERNAME` dan `WEBSHARE_PROXY_PASSWORD` (proxy residensial Webshare, berbayar murah).
+- Atau pakai **APK Android**. APK mengambil subtitle langsung dari HP, jadi tidak kena blokir ini.
+
+TranscriptBot sendiri berjalan di browser pengunjung, sehingga server gratis tidak terbebani proses peringkasan.
+
+---
+
+## 💻 Jalankan sendiri (komputer atau Termux)
 
 ```bash
 pip install -r requirements.txt
 python app.py            # buka http://localhost:5000
 ```
-Opsional: install [Ollama](https://ollama.com), lalu `ollama pull qwen2.5:1.5b` untuk AI lokal. Untuk Claude, jalankan `pip install anthropic` lalu atur `ANTHROPIC_API_KEY`.
 
----
+Di Android lewat Termux (alternatif dari APK):
+```bash
+pkg install -y git
+git clone https://github.com/airputihsegarmantap-blip/Transkripsi-.git
+cd Transkripsi-
+bash install-android.sh
+transkripku
+```
 
 ## Konfigurasi
 
 | Variabel | Bawaan | Keterangan |
 |---|---|---|
-| `SUMMARY_ENGINE` | otomatis | `lokal`, `ollama`, atau `claude`. Otomatis berarti AI lokal kalau tersedia, kalau tidak peringkas lokal. |
-| `OLLAMA_MODEL` | `qwen2.5:1.5b` | Model AI lokal |
-| `OLLAMA_URL` | `http://127.0.0.1:11434` | Alamat Ollama |
-| `OLLAMA_MAX_WORDS` | `2500` | Transkrip yang lebih panjang dari ini dipadatkan dulu oleh peringkas lokal sebelum dikirim ke model kecil |
-| `ANTHROPIC_API_KEY` | – | Mengaktifkan mesin Claude |
-| `CLAUDE_MODEL` | `claude-opus-5-5` | Model Claude |
-| `WHISPER_MODEL` | `small` | Untuk video tanpa subtitle (butuh `requirements-opsional.txt` + `faster-whisper` + ffmpeg; tidak disarankan di HP) |
-| `PORT` | `5000` | Port server |
-| `HOST` | `127.0.0.1` | Ganti ke `0.0.0.0` agar bisa dibuka dari perangkat lain di Wi-Fi yang sama |
+| `PORT` | `5000` (lokal) / `7860` (Docker) | Port server |
+| `HOST` | `127.0.0.1` | Ganti ke `0.0.0.0` agar bisa dibuka dari perangkat lain |
+| `YT_PROXY_URL` | – | Proxy untuk mengambil subtitle (berguna di hosting) |
+| `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` | – | Proxy residensial Webshare |
 
 ## Struktur
 
 ```
-app.py               # server Flask + endpoint API + PWA
-transcriber.py       # pengambilan transkrip (subtitle YouTube / Whisper)
-summarizer.py        # pemilih mesin ringkasan (lokal / Ollama / Claude)
-local_summarizer.py  # peringkas lokal buatan sendiri (TF-IDF + sentralitas)
-install-android.sh   # pemasang untuk Termux
-jalankan.sh          # menyalakan server + membuka browser
-templates/, static/  # tampilan, logo, ikon, manifest, service worker
+shared/transcriptbot.js  # TranscriptBot — dipakai APK & web
+app.py, transcriber.py   # server web (ambil transkrip YouTube)
+templates/, static/      # tampilan web, PWA
+android/                 # aplikasi Android (Kotlin + WebView)
+eval/                    # data uji & skrip evaluasi TranscriptBot
+Dockerfile, render.yaml  # hosting gratis
 ```
-
-## Catatan
-
-- Pengambilan subtitle tetap butuh internet (untuk mengakses YouTube). Yang offline adalah proses meringkasnya.
-- Peringkas lokal bersifat *extractive*: kalimat ringkasan diambil langsung dari transkrip, jadi gaya bahasanya mengikuti pembicara. Untuk ringkasan dengan kalimat baru yang lebih rapi, pakai AI lokal atau Claude.
-- YouTube kadang memblokir IP server cloud. Menjalankan aplikasi di HP atau komputer pribadi biasanya aman.

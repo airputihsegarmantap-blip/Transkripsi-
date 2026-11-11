@@ -105,16 +105,6 @@ a.ts { color: var(--accent); text-decoration: none; font-variant-numeric: tabula
 /* ---- Tambahan versi Android ---- */
 body { padding-bottom: env(safe-area-inset-bottom); }
 .small { font-size: .85rem; }
-.inline-label { font-size: .9rem; color: var(--muted); }
-.seg-control { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.seg-control label { margin: 0; font-weight: 500; padding: 6px 16px; cursor: pointer; font-size: .9rem; }
-.seg-control input { display: none; }
-.seg-control label:has(input:checked) { background: var(--accent); color: var(--accent-ink); }
-.ai-panel { margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--bg); border: 1px dashed var(--border); }
-.ai-panel p { margin: 0 0 8px; }
-.ai-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.progress { height: 8px; background: var(--border); border-radius: 99px; overflow: hidden; margin-bottom: 10px; }
-.progress div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .thumb-wrap { position: relative; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
 .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .play {

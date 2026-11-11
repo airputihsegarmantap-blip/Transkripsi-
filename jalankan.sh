@@ -4,13 +4,6 @@ cd "$(dirname "$0")"
 PORT="${PORT:-5000}"
 URL="http://localhost:$PORT"
 
-# Nyalakan AI lokal kalau Ollama terpasang dan belum berjalan.
-if command -v ollama >/dev/null 2>&1 && ! curl -s -m 1 http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-  echo "Menyalakan AI lokal (Ollama)…"
-  (ollama serve >/dev/null 2>&1 &)
-  sleep 3
-fi
-
 # Cegah Android mematikan server saat layar mati.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 

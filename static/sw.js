@@ -1,7 +1,7 @@
 // Service worker TranskripKu: menyimpan tampilan aplikasi agar cepat dibuka.
 // Permintaan API selalu langsung ke server (tidak di-cache).
-const CACHE = "transkripku-v2";
-const SHELL = ["/", "/static/style.css", "/static/app.js", "/static/logo.jpg",
+const CACHE = "transkripku-v3";
+const SHELL = ["/", "/static/style.css", "/static/app.js", "/shared/transcriptbot.js", "/static/logo.jpg",
                "/static/icon-192.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

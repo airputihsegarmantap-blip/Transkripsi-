@@ -26,10 +26,6 @@
         <input id="url" type="url" required placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
         <button id="go" type="submit">Proses</button>
       </div>
-      <div class="engine-row">
-        <label for="engine" class="inline">Mesin ringkasan</label>
-        <select id="engine"><option value="lokal">Peringkas lokal (offline)</option></select>
-      </div>
       <p id="status" class="status" role="status"></p>
       <button id="install" type="button" class="ghost hidden">📲 Pasang sebagai aplikasi</button>
     </form>
@@ -65,8 +61,9 @@
     </div>
   </main>
 
-  <footer class="muted">Subtitle diambil dari YouTube · Berjalan di server lokal</footer>
+  <footer class="muted">Subtitle diambil dari YouTube · Ringkasan oleh TranscriptBot</footer>
 
+  <script src="/shared/transcriptbot.js"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

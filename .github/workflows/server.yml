@@ -1,0 +1,41 @@
+name: Cek server (Docker)
+
+on:
+  push:
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "app.py"
+      - "transcriber.py"
+      - "templates/**"
+      - "static/**"
+      - "shared/**"
+      - "eval/**"
+      - ".github/workflows/server.yml"
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Evaluasi TranscriptBot vs peringkas lama
+        run: |
+          node eval/run_eval.js
+          node eval/run_eval.js eval/heldout.json
+
+      - name: Build image
+        run: docker build -t transkripku .
+
+      - name: Jalankan & cek
+        run: |
+          docker run -d --rm -p 7860:7860 --name tk transkripku
+          for i in $(seq 30); do curl -sf localhost:7860/healthz && break; sleep 1; done
+          curl -sf localhost:7860/ | grep -q "TranskripKu"
+          curl -sf localhost:7860/shared/transcriptbot.js | grep -q "TranscriptBot"
+          # Coba ambil transkrip sungguhan dari IP GitHub (bisa diblokir YouTube — tidak dianggap gagal)
+          curl -s -X POST localhost:7860/api/transcribe -H 'content-type: application/json' \
+            -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' | head -c 400 || true
+          echo
+          docker stop tk

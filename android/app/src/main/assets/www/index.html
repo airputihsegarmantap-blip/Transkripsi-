@@ -22,22 +22,6 @@
         <input id="url" type="url" required placeholder="Tempel link YouTube…" autocomplete="off">
         <button id="go" type="submit">Proses</button>
       </div>
-      <div class="engine-row">
-        <span class="inline-label">Mesin ringkasan</span>
-        <div class="seg-control" role="radiogroup">
-          <label><input type="radio" name="engine" value="cepat" checked> Cepat</label>
-          <label><input type="radio" name="engine" value="ai"> AI</label>
-        </div>
-      </div>
-      <div id="aiPanel" class="ai-panel hidden">
-        <p id="aiInfo" class="muted small"></p>
-        <div id="progressWrap" class="progress hidden"><div id="progressBar"></div></div>
-        <div class="ai-actions">
-          <button id="aiDownload" type="button" class="ghost">Unduh model AI</button>
-          <button id="aiCancel" type="button" class="ghost hidden">Batal</button>
-          <button id="aiDelete" type="button" class="ghost hidden">Hapus model</button>
-        </div>
-      </div>
       <p id="status" class="status" role="status"></p>
     </form>
 
@@ -71,9 +55,9 @@
     </section>
   </main>
 
-  <footer class="muted small">Berjalan langsung di HP · tanpa server · ringkasan offline</footer>
+  <footer class="muted small">Ringkasan oleh TranscriptBot · berjalan langsung di HP, tanpa server</footer>
 
-  <script src="summarizer.js"></script>
+  <script src="../transcriptbot.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -9,23 +9,6 @@ const SOURCE_LABEL = {
   terjemahan: "subtitle diterjemahkan ke Indonesia",
 };
 
-// Batas kata transkrip yang dikirim ke AI (model kecil punya konteks terbatas).
-const AI_MAX_WORDS = 350; // ±600 token, sisanya untuk jawaban (konteks model 1280 token)
-const AI_SYSTEM = `Kamu adalah asisten yang meringkas transkrip video YouTube berbahasa Indonesia.
-Transkrip berasal dari subtitle otomatis, bisa berisi salah ketik dan tanpa tanda baca.
-Tulis ringkasan dalam Bahasa Indonesia yang baik, format Markdown:
-
-## Ringkasan Singkat
-2-3 kalimat inti video.
-
-## Poin-Poin Utama
-- 3 sampai 6 poin penting.
-
-## Kesimpulan
-1-2 kalimat.
-
-Hanya gunakan informasi dari transkrip. Jangan mengarang.`;
-
 // ---------------------------------------------------------------- jembatan native
 window.Bridge = {
   _id: 0,
@@ -112,7 +95,7 @@ function renderTranscript(data) {
     a.href = "#";
     a.className = "ts";
     a.dataset.t = Math.floor(seg.start);
-    a.textContent = LocalSummarizer.fmtTime(seg.start);
+    a.textContent = TranscriptBot.fmtTime(seg.start);
     const span = document.createElement("span");
     span.textContent = seg.text;
     row.append(a, span);
@@ -128,40 +111,11 @@ document.addEventListener("click", (e) => {
   openAt(Number(a.dataset.t));
 });
 
-// ---------------------------------------------------------------- mesin ringkasan
-const engine = () => document.querySelector('input[name="engine"]:checked').value;
-
-async function summarizeAi(data) {
-  const picked = LocalSummarizer.topSentences(data.segments, AI_MAX_WORDS);
-  const condensed = picked.map((s) => s.text).join(" ");
-  const wasCondensed = data.text.split(/\s+/).length > AI_MAX_WORDS;
-  const user = `${data.title ? `Judul video: ${data.title}\n\n` : ""}Transkrip:\n${condensed}\n\nBuatkan ringkasannya.`;
-  const result = await Bridge.call("generate", AI_SYSTEM, user);
-  let md = result.trim();
-  if (wasCondensed) md += "\n\n_Transkrip panjang dipadatkan dulu ke bagian terpenting sebelum diringkas AI._";
-  return md + "\n\n_Dibuat oleh AI offline di HP-mu._";
-}
-
-async function runSummary(data) {
+// ---------------------------------------------------------------- ringkasan
+function runSummary(data) {
   $("summaryCard").classList.remove("hidden");
-  const out = $("summary");
-  if (engine() === "ai") {
-    const st = modelStatus();
-    if (!st.ready) {
-      summaryText = "_Model AI belum diunduh — memakai peringkas cepat._\n\n" + LocalSummarizer.summarize(data.segments);
-      out.innerHTML = renderMarkdown(summaryText);
-      return;
-    }
-    out.innerHTML = '<p class="thinking">AI sedang membaca dan menulis ringkasan… (bisa 10–60 detik)</p>';
-    try {
-      summaryText = await summarizeAi(data);
-    } catch (err) {
-      summaryText = `_${err.message} — memakai peringkas cepat._\n\n` + LocalSummarizer.summarize(data.segments);
-    }
-  } else {
-    summaryText = LocalSummarizer.summarize(data.segments);
-  }
-  out.innerHTML = renderMarkdown(summaryText);
+  summaryText = TranscriptBot.summarize(data.segments, { title: data.title });
+  $("summary").innerHTML = renderMarkdown(summaryText);
 }
 
 // ---------------------------------------------------------------- proses utama
@@ -185,8 +139,8 @@ async function process(url) {
     renderTranscript(data);
     $("transcriptCard").classList.remove("hidden");
 
-    setStatus("Membuat ringkasan…");
-    await runSummary(data);
+    setStatus("TranscriptBot sedang meringkas…");
+    runSummary(data);
     setStatus("Selesai ✓");
   } catch (err) {
     setStatus(err.message, true);
@@ -211,7 +165,7 @@ $("copySummary").addEventListener("click", () => copyText(summaryText));
 $("copyTranscript").addEventListener("click", () => copyText(current ? current.text : ""));
 $("shareAll").addEventListener("click", () => {
   if (!current) return;
-  const lines = current.segments.map((s) => `[${LocalSummarizer.fmtTime(s.start)}] ${s.text}`);
+  const lines = current.segments.map((s) => `[${TranscriptBot.fmtTime(s.start)}] ${s.text}`);
   const text = `${current.title || current.video_id}\nhttps://www.youtube.com/watch?v=${current.video_id}\n\n` +
     (summaryText ? `RINGKASAN\n${summaryText}\n\nTRANSKRIP\n` : "") + lines.join("\n");
   if (hasNative()) Native.share(current.title || "Transkrip", text);
@@ -226,65 +180,3 @@ Bridge.on("share", ({ text }) => {
   process(m[0]);
 });
 
-// ---------------------------------------------------------------- panel model AI
-function modelStatus() {
-  try { return JSON.parse(Native.modelStatus()); }
-  catch { return { ready: false, downloading: false, sizeBytes: 0, name: "AI" }; }
-}
-const mb = (b) => `${Math.round(b / 1e6).toLocaleString("id-ID")} MB`;
-
-function refreshAiPanel() {
-  const isAi = engine() === "ai";
-  $("aiPanel").classList.toggle("hidden", !isAi);
-  if (!isAi) return;
-  const st = modelStatus();
-  $("aiInfo").textContent = st.ready
-    ? `✓ ${st.name} siap (${mb(st.sizeBytes)}). Berjalan offline di HP-mu.`
-    : st.downloading
-      ? "Mengunduh model AI…"
-      : `${st.name}: model AI kecil yang berjalan offline di HP. Perlu diunduh sekali (547 MB, sebaiknya pakai Wi-Fi). Disarankan RAM ≥ 4 GB.`;
-  $("aiDownload").classList.toggle("hidden", st.ready || st.downloading);
-  $("aiCancel").classList.toggle("hidden", !st.downloading);
-  $("aiDelete").classList.toggle("hidden", !st.ready);
-  $("progressWrap").classList.toggle("hidden", !st.downloading);
-}
-
-document.querySelectorAll('input[name="engine"]').forEach((r) =>
-  r.addEventListener("change", () => {
-    try { localStorage.setItem("engine", engine()); } catch {}
-    refreshAiPanel();
-  })
-);
-
-Bridge.on("download", ({ done, total }) => {
-  $("progressWrap").classList.remove("hidden");
-  const pct = total > 0 ? Math.floor((done / total) * 100) : 0;
-  $("progressBar").style.width = `${pct}%`;
-  $("aiInfo").textContent = total > 0 ? `Mengunduh model AI… ${mb(done)} / ${mb(total)} (${pct}%)` : `Mengunduh… ${mb(done)}`;
-});
-
-$("aiDownload").addEventListener("click", async () => {
-  $("aiDownload").classList.add("hidden");
-  $("aiCancel").classList.remove("hidden");
-  $("progressWrap").classList.remove("hidden");
-  try {
-    await Bridge.call("downloadModel");
-    setStatus("Model AI siap dipakai ✓");
-  } catch (err) {
-    setStatus(err.message, true);
-  }
-  refreshAiPanel();
-});
-$("aiCancel").addEventListener("click", () => Native.cancelDownload());
-$("aiDelete").addEventListener("click", () => {
-  if (!confirm("Hapus model AI dari HP? Kamu bisa mengunduhnya lagi nanti.")) return;
-  Native.deleteModel();
-  setTimeout(refreshAiPanel, 300);
-});
-
-(function init() {
-  let saved = null;
-  try { saved = localStorage.getItem("engine"); } catch {}
-  if (saved === "ai") document.querySelector('input[value="ai"]').checked = true;
-  refreshAiPanel();
-})();
