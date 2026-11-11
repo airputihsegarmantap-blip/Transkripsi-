@@ -90,9 +90,42 @@ Ringkasannya memakai pemotongan kalimat ucapan dari v2, teks yang dirapikan mode
 
 ## 📊 Hasil verifikasi
 
-Semua angka di bawah berasal dari GitHub Actions (`.github/workflows/rheus.yml`) dengan data sungguhan. Jalankan ulang dengan `python eval/eval_v3.py`, `python eval/bench_v2.py`, dan `node eval/btc_backtest.js`.
+Semua angka di bawah berasal dari GitHub Actions (`.github/workflows/rheus.yml`, November 2026) dengan **data sungguhan**. Untuk menjalankannya ulang: `python eval/eval_v3.py`, `python eval/bench_v2.py`, `node eval/btc_backtest.js`.
 
-Hasil terbaru ada di log workflow **RheusInterface** dan di artefak `rheus-model-dan-hasil`. Ringkasan hasil verifikasi juga ada di deskripsi Pull Request.
+**Pelatihan awal:** 1.188 ringkasan artikel Wikipedia Indonesia + 123 deskripsi berita, total 167 ribu kata. 20% teks Wikipedia disisihkan sebagai data uji dan tidak pernah dipelajari.
+
+**TranscriptBot 3 vs 2.0: kerapian transkrip lengkap** (diuji pada data yang tidak pernah dipelajari)
+
+| | Titik F1 | Koma F1 | Huruf kapital nama diri | **Skor kerapian** |
+|---|---|---|---|---|
+| v2.0 | 0,271 | 0 | 0 | 0,090 |
+| **v3** | **0,612** | **0,328** | **0,495** | **0,478 (5,3x)** |
+
+Skor kerapian adalah rata-rata dari tiga angka di sebelahnya. Versi 2.0 tidak punya fitur transkrip rapi, jadi koma dan kapitalnya bernilai nol.
+
+**Ringkasan:** v3 ROUGE-L 45,6 vs v2 45,5. Hasilnya **setara**. Ringkasan berbasis pemilihan kalimat sudah dekat batas atas metodenya, jadi ringkasan tidak naik 5x.
+
+**Kecepatan RheusInterface 2 (server) vs 1.0 (diolah di HP)**
+
+| | v1 di HP | v2 server | Peningkatan |
+|---|---|---|---|
+| Berita kripto | 653 ms | 6,8 ms | 96x |
+| Berita utama/dunia | 385 ms | 6,8 ms | 57x |
+| Berita viral | 314 ms | 5,1 ms | 62x |
+| Analisa Bitcoin | 511 ms | 1,2 ms | 426x |
+| Hitungan Bitcoin saja (kalibrasi + uji balik) | 67 ms | 19,9 ms | 3,4x |
+
+Kenaikan besar di baris berita dan Bitcoin terjadi karena server **menyiapkan data di latar belakang**. Untuk hitungan murni, peningkatannya ±3,4x (NumPy + algoritma uji balik inkremental yang hasilnya dibuktikan identik).
+
+**Pembelajaran online**
+- **Model tanda baca:** F1 titik naik dari 0,60 (setelah 20 ribu kata) ke 0,82 (setelah 160 ribu kata). Angka ini diukur prequential: setiap contoh ditebak sebelum dipelajari.
+- **Model kategori:** akurasi ±83–89% pada contoh berlabel yang belum pernah dilihat.
+
+**Prediksi Bitcoin (uji balik 2 tahun):** tebakan arah **tidak lebih baik dari tebakan dasar**. Aplikasi menampilkan hasil ini apa adanya dan menurunkan keyakinan ke "rendah". Bukan saran keuangan.
+
+**Keterbatasan**
+- **Kategori berita viral:** hanya diberikan bila yakin. Akibatnya ±60–70% berita masuk "Lainnya". Ini disengaja: lebih baik tidak berkategori daripada salah kategori.
+- **Transkripsi di versi web:** server cloud sering diblokir YouTube. APK tidak terpengaruh.
 
 ## 📲 APK Android
 
