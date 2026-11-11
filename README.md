@@ -25,7 +25,21 @@ Aplikasi untuk **mentranskripsi video YouTube berbahasa Indonesia secara otomati
 
 ---
 
-## 📱 Pasang di Android (Termux)
+## 📲 Aplikasi Android (APK) — tanpa server (disarankan)
+
+1. Di HP, buka halaman **Releases** repo ini: `https://github.com/airputihsegarmantap-blip/Transkripsi-/releases`. Unduh **TranskripKu.apk** dari rilis "TranskripKu APK".
+2. Buka file APK-nya. Kalau Android meminta, izinkan **"Instal aplikasi tidak dikenal"** untuk browser/file manager.
+3. Buka TranskripKu, tempel link YouTube, lalu ketuk **Proses**. Bisa juga dari aplikasi YouTube: **Bagikan → TranskripKu**.
+
+Mesin ringkasan di APK:
+- **Cepat**: peringkas offline buatan sendiri, langsung jalan tanpa unduhan apa pun.
+- **AI**: LLM kecil open-source **Qwen2.5 0.5B** yang berjalan **offline di HP** (MediaPipe LLM Inference). Ketuk *Unduh model AI* sekali (±500 MB, pakai Wi-Fi). Disarankan RAM ≥ 4 GB. Transkrip panjang dipadatkan dulu ke kalimat terpenting sebelum diringkas AI.
+
+Kode sumber ada di folder `android/`. APK dibangun otomatis oleh GitHub Actions (`.github/workflows/android.yml`) setiap ada perubahan di folder itu.
+
+---
+
+## 📱 Alternatif: server lokal di Android (Termux)
 
 1. Install **Termux** dari F-Droid: https://f-droid.org/packages/com.termux/
    (versi di Play Store sudah usang). Agar browser bisa dibuka otomatis, install juga **Termux:API** dari F-Droid.
