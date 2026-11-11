@@ -1,0 +1,60 @@
+name: Build APK
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cek file model AI di Hugging Face
+        run: |
+          for repo in litert-community/Qwen2.5-0.5B-Instruct litert-community/Qwen2.5-1.5B-Instruct litert-community/Gemma3-1B-IT litert-community/gemma-3-270m-it; do
+            echo "=== $repo"
+            curl -s "https://huggingface.co/api/models/$repo" | python3 -c "import sys,json; d=json.load(sys.stdin); print('gated:', d.get('gated'))" || true
+            curl -s "https://huggingface.co/api/models/$repo/tree/main" | python3 -c "import sys,json; [print(f\"{f['path']}  {f.get('size',0)/1e6:.0f} MB\") for f in json.load(sys.stdin) if f['path'].endswith(('.task','.litertlm'))]" || true
+          done
+          URL=$(grep -o 'https://huggingface.co[^"]*' android/app/src/main/java/com/transkripku/app/Config.kt)
+          echo "MODEL_URL=$URL"
+          curl -sIL -o /dev/null -w "MODEL_URL status: %{http_code}, size: %{size_download}\n" "$URL" || true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build APK
+        run: gradle -p android assembleRelease --stacktrace
+
+      - name: Siapkan file
+        run: cp android/app/build/outputs/apk/release/app-release.apk TranskripKu.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TranskripKu-apk
+          path: TranskripKu.apk
+
+      - name: Terbitkan ke halaman Releases (unduhan langsung dari HP)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apk-terbaru
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" TranskripKu.apk \
+            --target "$GITHUB_SHA" \
+            --title "TranskripKu APK (build #$GITHUB_RUN_NUMBER)" \
+            --notes "Unduh **TranskripKu.apk** di bawah, lalu buka file-nya di HP Android untuk memasang. Dibangun dari branch \`$GITHUB_REF_NAME\` commit $GITHUB_SHA." \
+            --prerelease

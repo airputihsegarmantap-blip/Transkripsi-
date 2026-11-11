@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 venv/
 .env
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
