@@ -33,7 +33,7 @@ Aplikasi untuk **mentranskripsi video YouTube berbahasa Indonesia secara otomati
 
 Mesin ringkasan di APK:
 - **Cepat**: peringkas offline buatan sendiri, langsung jalan tanpa unduhan apa pun.
-- **AI**: LLM kecil open-source **Qwen2.5 0.5B** yang berjalan **offline di HP** (MediaPipe LLM Inference). Ketuk *Unduh model AI* sekali (±500 MB, pakai Wi-Fi). Disarankan RAM ≥ 4 GB. Transkrip panjang dipadatkan dulu ke kalimat terpenting sebelum diringkas AI.
+- **AI**: LLM kecil open-source **Qwen2.5 0.5B** yang berjalan **offline di HP** (MediaPipe LLM Inference). Ketuk *Unduh model AI* sekali (547 MB, pakai Wi-Fi). Disarankan RAM ≥ 4 GB. Transkrip panjang dipadatkan dulu ke kalimat terpenting sebelum diringkas AI.
 
 Kode sumber ada di folder `android/`. APK dibangun otomatis oleh GitHub Actions (`.github/workflows/android.yml`) setiap ada perubahan di folder itu.
 

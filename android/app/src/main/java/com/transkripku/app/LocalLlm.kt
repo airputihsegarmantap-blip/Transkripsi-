@@ -19,7 +19,7 @@ class LocalLlm(private val context: Context) {
     companion object {
         const val MODEL_URL = BuildConfigUrls.MODEL_URL
         const val MODEL_NAME = "Qwen2.5 0.5B (offline)"
-        const val MAX_TOKENS = 2048
+        const val MAX_TOKENS = 1280 // batas konteks file model (ekv1280)
     }
 
     private val modelFile = File(context.filesDir, "model.task")

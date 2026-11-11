@@ -10,7 +10,7 @@ const SOURCE_LABEL = {
 };
 
 // Batas kata transkrip yang dikirim ke AI (model kecil punya konteks terbatas).
-const AI_MAX_WORDS = 600;
+const AI_MAX_WORDS = 350; // ±600 token, sisanya untuk jawaban (konteks model 1280 token)
 const AI_SYSTEM = `Kamu adalah asisten yang meringkas transkrip video YouTube berbahasa Indonesia.
 Transkrip berasal dari subtitle otomatis, bisa berisi salah ketik dan tanpa tanda baca.
 Tulis ringkasan dalam Bahasa Indonesia yang baik, format Markdown:
@@ -242,7 +242,7 @@ function refreshAiPanel() {
     ? `✓ ${st.name} siap (${mb(st.sizeBytes)}). Berjalan offline di HP-mu.`
     : st.downloading
       ? "Mengunduh model AI…"
-      : `${st.name}: model AI kecil yang berjalan offline di HP. Perlu diunduh sekali (±500 MB, sebaiknya pakai Wi-Fi). Disarankan RAM ≥ 4 GB.`;
+      : `${st.name}: model AI kecil yang berjalan offline di HP. Perlu diunduh sekali (547 MB, sebaiknya pakai Wi-Fi). Disarankan RAM ≥ 4 GB.`;
   $("aiDownload").classList.toggle("hidden", st.ready || st.downloading);
   $("aiCancel").classList.toggle("hidden", !st.downloading);
   $("aiDelete").classList.toggle("hidden", !st.ready);
