@@ -108,6 +108,14 @@
     return m ? decode(m[1]) : "";
   }
 
+  /** Judul spam SEO (mis. situs yang diretas): semua huruf kecil & pendek, atau pola judi. */
+  function looksLikeSpam(title, source) {
+    if (!/[A-Z]/.test(title) && title.split(/\s+/).length <= 8) return true;
+    if (/slot|gacor|togel|judi|casino|maxwin|bandar/i.test(title)) return true;
+    if (/^website (kabupaten|desa|kota)/i.test(source || "")) return true;
+    return false;
+  }
+
   /** Parser RSS 2.0 / Atom sederhana (tanpa DOMParser, jalan di mana saja). */
   function parseFeed(xml, fallbackSource) {
     const items = [];
@@ -125,12 +133,20 @@
       const dateStr = stripTags(tag(b, "pubDate") || tag(b, "updated") || tag(b, "published") || tag(b, "dc:date"));
       const ts = Date.parse(dateStr) || env.now();
       const rawDesc = tag(b, "description") || tag(b, "summary") || tag(b, "content") || tag(b, "content:encoded");
-      // Google News: deskripsi berisi daftar liputan terkait (<li>) — jumlahnya = tanda ramai.
-      const coverage = (decode(rawDesc).match(/<li>/gi) || []).length;
-      let excerpt = stripTags(rawDesc);
+      // Google News: deskripsi berisi daftar liputan terkait (<li>) — jumlahnya = tanda ramai,
+      // isinya dipakai sebagai "liputan terkait"; teksnya sendiri bukan cuplikan berita.
+      const lis = decode(rawDesc).match(/<li>[\s\S]*?<\/li>/gi) || [];
+      const coverage = lis.length;
+      const related = lis.map((li) => ({
+        title: stripTags((li.match(/<a[^>]*>([\s\S]*?)<\/a>/i) || [])[1] || ""),
+        link: decode((li.match(/href="([^"]*)"/i) || [])[1] || ""),
+        source: stripTags((li.match(/<font[^>]*>([\s\S]*?)<\/font>/i) || [])[1] || ""),
+      })).filter((r) => r.title && jaccard(words(r.title), words(title)) < 0.8);
+      let excerpt = coverage ? "" : stripTags(rawDesc);
       if (!excerpt || jaccard(words(excerpt), words(title)) > 0.6 || /^\s*submitted by/i.test(excerpt)) excerpt = "";
       if (excerpt.length > 260) excerpt = excerpt.slice(0, 257).replace(/\s+\S*$/, "") + "…";
-      if (title) items.push({ title, link, ts, source: source || "", excerpt, coverage });
+      if (looksLikeSpam(title, source)) continue;
+      if (title) items.push({ title, link, ts, source: source || "", excerpt, coverage, related });
     }
     return items;
   }
@@ -216,7 +232,10 @@
         excerpt: lead.excerpt || summarizeCoverage(c),
         source: c.members[0].source,
         sources: [...c.sources],
-        related: c.members.slice(1, 5).map((m) => ({ title: m.title, source: m.source, link: m.link })),
+        related: dedupeRelated([
+          ...c.members.slice(1).map((m) => ({ title: m.title, source: m.source, link: m.link })),
+          ...c.members.flatMap((m) => m.related || []),
+        ]).slice(0, 5),
         link: c.members[0].link,
         ts: newest,
         time: ago(newest),
@@ -234,6 +253,12 @@
       hot, list,
       stats: { articles: fresh.length, stories: clusters.length, forumPosts: forum.length },
     };
+  }
+
+  function dedupeRelated(list) {
+    const out = [];
+    for (const r of list) if (!out.some((o) => jaccard(words(o.title), words(r.title)) > 0.7)) out.push(r);
+    return out;
   }
 
   function summarizeCoverage(c) {
@@ -271,15 +296,13 @@
     return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / Math.max(1, a.length - 1));
   }
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-  const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 
   /**
-   * Model arah harga (heuristik, transparan). Dipakai juga oleh uji balik di eval/btc_backtest.js.
+   * Sinyal teknikal pada satu titik waktu. Hanya memakai data sampai titik itu.
    * @param {number[]} closes  harga penutupan harian (paling lama → terbaru)
    * @param {number} h         horizon dalam hari (1, 7, 30)
-   * @param {{fng?:number, funding?:number}} sentiment
    */
-  function model(closes, h, sentiment = {}) {
+  function technical(closes, h) {
     const price = closes[closes.length - 1];
     const ma20 = sma(closes, 20), ma50 = sma(closes, 50), ma200 = sma(closes, 200);
     const rets = [];
@@ -288,7 +311,6 @@
     const lb = Math.min(h === 1 ? 3 : h, closes.length - 1);
     const mom = Math.log(price / closes[closes.length - 1 - lb]) / (vol * Math.sqrt(lb));
     const r = rsi(closes);
-
     const f = [];
     const add = (w, v, why) => { if (Number.isFinite(v)) f.push({ w, v, why }); };
     add(h >= 7 ? 0.5 : 0.3, price > ma50 ? 1 : -1, price > ma50 ? "Harga di atas MA-50 harian" : "Harga di bawah MA-50 harian");
@@ -296,30 +318,90 @@
     if (Number.isFinite(ma200)) add(h >= 30 ? 0.5 : 0.2, price > ma200 ? 1 : -1, price > ma200 ? "Di atas MA-200 (tren besar naik)" : "Di bawah MA-200 (tren besar turun)");
     add(h === 1 ? 0.45 : 0.35, clamp(mom, -2, 2) / 2, mom > 0.3 ? "Momentum jangka pendek positif" : mom < -0.3 ? "Momentum jangka pendek negatif" : "Momentum datar");
     if (Number.isFinite(r)) {
-      // RSI ekstrem → cenderung berbalik.
-      const rv = r > 75 ? -0.6 : r < 25 ? 0.6 : (r - 50) / 50;
+      const rv = r > 75 ? -0.6 : r < 25 ? 0.6 : (r - 50) / 50; // RSI ekstrem → cenderung berbalik
       add(0.25, rv, r > 70 ? `RSI ${r.toFixed(0)} jenuh beli` : r < 30 ? `RSI ${r.toFixed(0)} jenuh jual` : `RSI ${r.toFixed(0)} netral`);
     }
-    if (Number.isFinite(sentiment.fng)) {
-      // Fear & Greed dipakai kontrarian (takut ekstrem sering jadi titik pantul).
-      add(0.15, -(sentiment.fng - 50) / 50, sentiment.fng < 30 ? `Fear & Greed ${sentiment.fng} (takut)` : sentiment.fng > 70 ? `Fear & Greed ${sentiment.fng} (serakah)` : `Fear & Greed ${sentiment.fng} (netral)`);
-    }
-    if (Number.isFinite(sentiment.funding)) {
-      add(0.1, clamp(-sentiment.funding / 0.0003, -1, 1), sentiment.funding > 0.0002 ? "Funding rate tinggi (posisi long ramai)" : sentiment.funding < 0 ? "Funding rate negatif (posisi short ramai)" : "Funding rate netral");
-    }
-    const wsum = f.reduce((a, x) => a + x.w, 0) || 1;
-    const s = f.reduce((a, x) => a + x.w * x.v, 0) / wsum; // -1..1
+    const wsum = f.reduce((x, y) => x + y.w, 0) || 1;
+    const score = f.reduce((x, y) => x + y.w * y.v, 0) / wsum; // -1..1
+    return { price, score, vol, rsi: r, ma20, ma50, ma200, factors: f };
+  }
 
-    const pSide = clamp(0.38 - 0.35 * Math.abs(s), 0.12, 0.38);
-    const pUp = (1 - pSide) * sigmoid(2.2 * s);
-    const pDown = 1 - pSide - pUp;
-    const diff = pUp - pDown;
-    const direction = diff > 0.1 ? "up" : diff < -0.1 ? "down" : "side";
-    const move = vol * Math.sqrt(h) * (0.6 + 0.4 * Math.abs(s));
-    const target = direction === "up" ? price * Math.exp(move) : direction === "down" ? price * Math.exp(-move) : price;
-    const confidence = Math.abs(diff) < 0.15 ? "rendah" : Math.abs(diff) < 0.32 ? "sedang" : "tinggi";
-    const reasons = f.slice().sort((a, b) => b.w * Math.abs(b.v) - a.w * Math.abs(a.v)).map((x) => ({ text: x.why, bull: x.v > 0 }));
-    return { price, score: s, probs: { up: pUp, side: pSide, down: pDown }, direction, target, confidence, vol, rsi: r, ma20, ma50, ma200, reasons };
+  /**
+   * Kalibrasi dari sejarah: hitung skor teknikal untuk setiap hari di masa lalu, kelompokkan
+   * menjadi 3 (bearish / netral / bullish), lalu catat apa yang benar-benar terjadi h hari
+   * kemudian. Probabilitas = frekuensi historis (dihaluskan ke rata-rata keseluruhan).
+   * @param {number} upto  hanya pakai hari < upto (untuk uji balik tanpa melihat masa depan)
+   */
+  function calibrate(closes, h, scores, upto = closes.length) {
+    const start = 200;
+    const rows = [];
+    for (let t = start; t + h < upto; t++) {
+      const sc = scores ? scores[t] : technical(closes.slice(0, t + 1), h);
+      const ret = Math.log(closes[t + h] / closes[t]);
+      const band = 0.25 * sc.vol * Math.sqrt(h);
+      rows.push({ s: sc.score, ret, out: ret > band ? "up" : ret < -band ? "down" : "side" });
+    }
+    if (rows.length < 30) return null;
+    const sorted = rows.map((r) => r.s).sort((x, y) => x - y);
+    const edges = [sorted[Math.floor(sorted.length / 3)], sorted[Math.floor((2 * sorted.length) / 3)]];
+    const bucketOf = (x) => (x < edges[0] ? 0 : x < edges[1] ? 1 : 2);
+    const count = () => ({ up: 0, side: 0, down: 0, n: 0, rets: [] });
+    const all = count(), buckets = [count(), count(), count()];
+    for (const r of rows) {
+      for (const c of [all, buckets[bucketOf(r.s)]]) { c[r.out]++; c.n++; c.rets.push(r.ret); }
+    }
+    const K = 20; // penghalusan: bucket kecil ditarik ke rata-rata keseluruhan
+    const base = { up: all.up / all.n, side: all.side / all.n, down: all.down / all.n };
+    const probs = buckets.map((c) => {
+      const p = {};
+      for (const k of ["up", "side", "down"]) p[k] = (c[k] + K * base[k]) / (c.n + K);
+      const med = c.rets.slice().sort((x, y) => x - y)[Math.floor(c.rets.length / 2)] || 0;
+      return { ...p, n: c.n, medianRet: med };
+    });
+    return { edges, bucketOf, probs, base, n: all.n };
+  }
+
+  /** Skor teknikal untuk semua hari (dipakai kalibrasi & uji balik). */
+  function allScores(closes, h) {
+    const out = new Array(closes.length);
+    for (let t = 200; t < closes.length; t++) out[t] = technical(closes.slice(0, t + 1), h);
+    return out;
+  }
+
+  /**
+   * Model arah harga RheusInterface.
+   * Arah & probabilitas = frekuensi historis untuk sinyal teknikal yang mirip (lihat calibrate).
+   * Sentimen (Fear & Greed, funding rate) ditampilkan sebagai konteks, tidak mengubah
+   * probabilitas karena sejarahnya tidak tersedia untuk dikalibrasi.
+   */
+  function model(closes, h, sentiment = {}, cal = null) {
+    const tech = technical(closes, h);
+    cal = cal || calibrate(closes, h);
+    let probs, bucket = 1, medianRet = 0, n = 0;
+    if (cal) {
+      bucket = cal.bucketOf(tech.score);
+      const b = cal.probs[bucket];
+      probs = { up: b.up, side: b.side, down: b.down };
+      medianRet = b.medianRet;
+      n = b.n;
+    } else {
+      probs = { up: 1 / 3, side: 1 / 3, down: 1 / 3 };
+    }
+    const diff = probs.up - probs.down;
+    const direction = probs.side > Math.max(probs.up, probs.down) || Math.abs(diff) < 0.05 ? "side" : diff > 0 ? "up" : "down";
+    const edge = cal ? Math.max(Math.abs(probs.up - cal.base.up), Math.abs(probs.down - cal.base.down)) : 0;
+    const confidence = edge < 0.04 ? "rendah" : edge < 0.09 ? "sedang" : "tinggi";
+    const target = tech.price * Math.exp(direction === "side" ? 0 : medianRet);
+
+    const reasons = tech.factors.slice().sort((a, b) => b.w * Math.abs(b.v) - a.w * Math.abs(a.v)).map((x) => ({ text: x.why, bull: x.v > 0 }));
+    if (Number.isFinite(sentiment.fng)) {
+      reasons.push({ text: sentiment.fng < 30 ? `Fear & Greed ${sentiment.fng} (takut)` : sentiment.fng > 70 ? `Fear & Greed ${sentiment.fng} (serakah)` : `Fear & Greed ${sentiment.fng} (netral)`, bull: sentiment.fng < 50, context: true });
+    }
+    return {
+      price: tech.price, score: tech.score, probs, direction, target, confidence,
+      vol: tech.vol, rsi: tech.rsi, ma20: tech.ma20, ma50: tech.ma50, ma200: tech.ma200, reasons,
+      history: cal ? { n, total: cal.n, signal: ["bearish", "netral", "bullish"][bucket], base: cal.base } : null,
+    };
   }
 
   const TFS = {
@@ -413,6 +495,7 @@
 
   return {
     VERSION, configure, news, explain, bitcoin, model, transcribe, parseFeed, rank,
+    _calibrate: calibrate, _allScores: allScores, _technical: technical,
     channels: Object.keys(CHANNELS), TFS, log: () => log.slice(), _ago: ago,
   };
 });

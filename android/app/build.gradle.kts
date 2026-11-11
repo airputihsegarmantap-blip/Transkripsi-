@@ -44,7 +44,8 @@ android {
         jvmTarget = "17"
     }
     sourceSets {
-        // TranscriptBot dipakai bersama dengan versi web: ../../shared/transcriptbot.js
-        getByName("main").assets.srcDirs("src/main/assets", "../../shared")
+        // Antarmuka SiLengkap (web/) + RheusInterface & TranscriptBot (shared/) dipakai
+        // bersama dengan versi web, jadi tidak ada salinan kode di folder android/.
+        getByName("main").assets.srcDirs("../../web", "../../shared")
     }
 }

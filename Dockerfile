@@ -1,4 +1,4 @@
-# TranskripKu — siap untuk hosting gratis (Render, Koyeb, Hugging Face Spaces, dll.)
+# SiLengkap — siap untuk hosting gratis (Render, Koyeb, Hugging Face Spaces, dll.)
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
@@ -8,8 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py transcriber.py ./
-COPY templates ./templates
-COPY static ./static
+COPY web ./web
 COPY shared ./shared
 
 # Hugging Face Spaces memakai port 7860; Render/Koyeb mengisi $PORT sendiri.

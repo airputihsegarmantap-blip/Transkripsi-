@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SiLengkap</title>
+  <meta name="theme-color" content="#12131d">
+  <meta name="description" content="Transkripsi video, berita, analisa Bitcoin, dan hiburan dalam satu aplikasi.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="vendor/phosphor/regular/style.css">
+  <link rel="stylesheet" href="vendor/phosphor/fill/style.css">
+  <link rel="stylesheet" href="silengkap.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <button class="brand" data-go="home" aria-label="Beranda SiLengkap">
+        <span class="logo-sm">SL</span>
+        <span class="brand-name">SiLengkap</span>
+      </button>
+      <span id="curTag" class="tag tag-neutral hidden"></span>
+      <button class="btn btn-secondary btn-icon" data-action="openMenu" aria-label="Menu"><i class="ph ph-list" style="font-size:18px"></i></button>
+    </header>
+
+    <main id="view"></main>
+  </div>
+
+  <div id="scrim" class="scrim" data-action="closeMenu"></div>
+  <aside id="drawer" class="drawer" aria-label="Menu">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <h6 style="margin:0;margin-right:auto">Menu</h6>
+      <button class="btn btn-ghost btn-icon" data-action="closeMenu" aria-label="Tutup"><i class="ph ph-x" style="font-size:18px;color:var(--color-text)"></i></button>
+    </div>
+    <div id="drawerItems" style="display:flex;flex-direction:column;gap:6px"></div>
+    <div class="drawer-foot"><i class="ph ph-cpu" style="color:var(--color-accent)"></i><span>Didukung <b>RheusInterface</b> &amp; TranscriptBot</span></div>
+  </aside>
+
+  <div id="dialog"></div>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="transcriptbot.js"></script>
+  <script src="rheus.js"></script>
+  <script src="dino.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

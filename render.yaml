@@ -1,7 +1,7 @@
 # Blueprint Render (paket gratis): https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: transkripku
+    name: silengkap
     runtime: docker
     plan: free
     healthCheckPath: /healthz

@@ -7,8 +7,7 @@ on:
       - "requirements.txt"
       - "app.py"
       - "transcriber.py"
-      - "templates/**"
-      - "static/**"
+      - "web/**"
       - "shared/**"
       - "eval/**"
       - ".github/workflows/server.yml"
@@ -32,8 +31,11 @@ jobs:
         run: |
           docker run -d --rm -p 7860:7860 --name tk transkripku
           for i in $(seq 30); do curl -sf localhost:7860/healthz && break; sleep 1; done
-          curl -sf localhost:7860/ | grep -q "TranskripKu"
-          curl -sf localhost:7860/shared/transcriptbot.js | grep -q "TranscriptBot"
+          curl -sf localhost:7860/ | grep -q "SiLengkap"
+          curl -sf localhost:7860/transcriptbot.js | grep -q "TranscriptBot"
+          curl -sf localhost:7860/rheus.js | grep -q "RheusInterface"
+          curl -sf "localhost:7860/api/fetch?url=https%3A%2F%2Fapi.alternative.me%2Ffng%2F%3Flimit%3D1" | head -c 200; echo
+          test "$(curl -s -o /dev/null -w %{http_code} "localhost:7860/api/fetch?url=https%3A%2F%2Fexample.com%2F")" = 403
           # Coba ambil transkrip sungguhan dari IP GitHub (bisa diblokir YouTube — tidak dianggap gagal)
           curl -s -X POST localhost:7860/api/transcribe -H 'content-type: application/json' \
             -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}' | head -c 400 || true
