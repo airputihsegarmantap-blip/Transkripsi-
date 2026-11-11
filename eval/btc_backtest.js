@@ -5,7 +5,7 @@
 // tebakannya dibandingkan dengan pergerakan harga sebenarnya h hari kemudian.
 // Pembanding: "dasar" = frekuensi historis naik/sideways/turun tanpa melihat sinyal apa pun.
 "use strict";
-const R = require("../shared/rheus.js");
+const R = require("./baseline/rheus_v1.js");
 
 (async () => {
   const res = await fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440");

@@ -1,14 +1,13 @@
-name: RheusInterface (uji data sungguhan + backtest)
+name: RheusInterface (uji, pelatihan, evaluasi, benchmark)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 3 * * 1"   # setiap Senin, untuk mendeteksi sumber yang berubah/rusak
+    - cron: "17 3 * * 1"   # setiap Senin: deteksi sumber data yang rusak
   push:
     paths:
-      - "shared/**"
-      - "eval/rheus_test.js"
-      - "eval/btc_backtest.js"
+      - "rheus/**"
+      - "eval/**"
       - ".github/workflows/rheus.yml"
 
 jobs:
@@ -16,12 +15,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rheus/requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Uji dengan data tiruan
-        run: node eval/rheus_test.js
-      - name: Uji dengan sumber internet sungguhan
-        run: node eval/rheus_test.js --live
-      - name: Backtest model arah Bitcoin
-        run: node eval/btc_backtest.js
+
+      - name: Pasang dependensi
+        run: pip install -r rheus/requirements.txt pytest
+
+      - name: Uji otomatis (data tiruan)
+        run: python -m pytest -q rheus/tests
+
+      - name: Pelatihan awal (Wikipedia Indonesia + berita)
+        working-directory: rheus
+        run: python -m rheus.train --wiki-pages 2000 --epochs 2 --out rheus/models/brain.pkl
+
+      - name: Evaluasi TranscriptBot 3 vs 2.0
+        run: python eval/eval_v3.py
+
+      - name: Jalankan server dengan sumber sungguhan
+        working-directory: rheus
+        run: |
+          RHEUS_DATA_DIR=/tmp/rheus-data nohup uvicorn rheus.app:app --port 8000 > /tmp/rheus.log 2>&1 &
+          for i in $(seq 60); do curl -sf localhost:8000/v1/health && break; sleep 1; done
+
+      - name: Benchmark v1 (JS di HP) vs v2 (server)
+        run: |
+          node eval/bench_v1.js > /tmp/v1.json || echo '{}' > /tmp/v1.json
+          cat /tmp/v1.json
+          python eval/bench_v2.py /tmp/v1.json
+
+      - name: Contoh hasil sungguhan
+        run: python eval/live_report.py
+
+      - name: Log server
+        if: always()
+        run: tail -n 60 /tmp/rheus.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rheus-model-dan-hasil
+          path: |
+            rheus/rheus/models/
+            eval/results_v3.json
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image RheusInterface
+        run: docker build --build-arg RHEUS_TRAIN_PAGES=200 -t rheus ./rheus
+      - name: Jalankan & cek
+        run: |
+          docker run -d --rm -p 8000:8000 --name rheus rheus
+          for i in $(seq 60); do curl -sf localhost:8000/v1/health && break; sleep 1; done
+          curl -sf localhost:8000/v1/learn | head -c 600; echo
+          docker stop rheus

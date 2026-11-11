@@ -1,11 +1,7 @@
-"""Ambil transkrip video YouTube, diutamakan Bahasa Indonesia.
+"""Ambil subtitle video YouTube untuk versi web (APK mengambil subtitle langsung dari HP).
 
-Urutan strategi:
-1. Subtitle YouTube (manual atau otomatis) via youtube-transcript-api.
-   - Prioritas: subtitle Indonesia buatan manusia -> subtitle Indonesia otomatis
-     -> subtitle bahasa lain yang diterjemahkan otomatis oleh YouTube ke Indonesia.
-2. Jika video sama sekali tidak punya subtitle dan paket `faster-whisper`
-   terpasang, audio diunduh dengan yt-dlp lalu ditranskripsi secara lokal.
+Prioritas: subtitle Indonesia manual → Indonesia otomatis → bahasa lain diterjemahkan ke Indonesia.
+YouTube sering memblokir IP server cloud; atur YT_PROXY_URL / WEBSHARE_PROXY_* bila perlu.
 """
 
 from __future__ import annotations
@@ -13,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import tempfile
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -150,42 +145,6 @@ def _from_youtube(video_id: str) -> TranscriptResult:
     )
 
 
-def _from_whisper(video_id: str) -> TranscriptResult:
-    try:
-        from faster_whisper import WhisperModel  # type: ignore
-    except ImportError as exc:
-        raise TranscriptError(
-            "Video ini tidak punya subtitle, jadi belum bisa ditranskripsi."
-        ) from exc
-
-    import yt_dlp
-
-    with tempfile.TemporaryDirectory() as tmp:
-        opts = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(tmp, "%(id)s.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
-        }
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
-            path = ydl.prepare_filename(info)
-
-        model_size = os.environ.get("WHISPER_MODEL", "small")
-        model = WhisperModel(model_size, device="auto", compute_type="int8")
-        segs, _info = model.transcribe(path, language="id", vad_filter=True)
-        segments = [
-            Segment(start=s.start, duration=s.end - s.start, text=_clean(s.text))
-            for s in segs
-        ]
-
-    return TranscriptResult(
-        video_id=video_id,
-        language="id",
-        source="whisper",
-        segments=[s for s in segments if s.text],
-    )
-
 
 def fetch_title(video_id: str) -> str | None:
     """Ambil judul video lewat endpoint oEmbed publik YouTube (tanpa API key)."""
@@ -203,8 +162,8 @@ def get_transcript(url_or_id: str) -> TranscriptResult:
     video_id = extract_video_id(url_or_id)
     try:
         result = _from_youtube(video_id)
-    except (TranscriptsDisabled, NoTranscriptFound):
-        result = _from_whisper(video_id)
+    except (TranscriptsDisabled, NoTranscriptFound) as exc:
+        raise TranscriptError("Video ini tidak punya subtitle, jadi belum bisa ditranskripsi.") from exc
     except (RequestBlocked, IpBlocked) as exc:
         raise TranscriptError(
             "YouTube memblokir permintaan dari server ini (umum terjadi di hosting cloud). "

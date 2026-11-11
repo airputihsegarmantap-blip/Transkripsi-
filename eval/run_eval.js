@@ -7,9 +7,9 @@ const fs = require("fs");
 const path = require("path");
 
 global.window = {};
-require("./baseline_summarizer.js");
+require("./baseline/summarizer_v1.js");
 const baseline = (segs) => window.LocalSummarizer.summarize(segs);
-const TranscriptBot = require("../shared/transcriptbot.js");
+const TranscriptBot = require("./baseline/transcriptbot_v2.js");
 const bot = (segs, title) => TranscriptBot.summarize(segs, { title });
 
 const file = process.argv.find((a) => a.endsWith(".json")) || path.join(__dirname, "data.json");

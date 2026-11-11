@@ -3,8 +3,8 @@
 //           node eval/rheus_test.js --live (sumber internet sungguhan, butuh jaringan)
 "use strict";
 const assert = require("assert");
-global.TranscriptBot = require("../shared/transcriptbot.js");
-const R = require("../shared/rheus.js");
+global.TranscriptBot = require("./baseline/transcriptbot_v2.js");
+const R = require("./baseline/rheus_v1.js");
 const live = process.argv.includes("--live");
 const { mockFetch } = require("./fixtures.js");
 

@@ -2,7 +2,7 @@
 // secara greedy untuk memaksimalkan ROUGE-2 terhadap acuan. Tidak ada peringkas
 // berbasis pemilihan kalimat yang bisa melebihi angka ini secara konsisten.
 global.window = {};
-const TB = require("../shared/transcriptbot.js");
+const TB = require("./baseline/transcriptbot_v2.js");
 const data = require("./data.json");
 const tok = (t) => t.toLowerCase().match(/[a-z0-9]+/g) || [];
 const ng = (t, n) => { const m = new Map(); for (let i = 0; i + n <= t.length; i++) { const k = t.slice(i, i + n).join(" "); m.set(k, (m.get(k) || 0) + 1); } return m; };
