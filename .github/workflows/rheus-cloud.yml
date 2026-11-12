@@ -95,6 +95,6 @@ jobs:
 
       - name: Kosongkan cache CDN
         run: |
-          for f in manifest utama finansial teknologi viral-id viral-us btc-24j btc-7h btc-30h radio-id radio-us knowledge model/meta model/case; do
+          for f in manifest utama finansial teknologi finansial-us teknologi-us viral-id viral-us btc-24j btc-7h btc-30h radio-id radio-us knowledge model/meta model/case; do
             curl -s -o /dev/null -w "%{http_code} $f\n" "https://purge.jsdelivr.net/gh/${{ github.repository }}@rheus-data/v2/$f.json" || true
           done

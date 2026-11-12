@@ -522,3 +522,16 @@ sup.cite { font-size: 10px; font-weight: 700; color: var(--color-accent-300); ba
 @keyframes diceroll { 25% { transform: rotate(90deg) scale(1.1); } 50% { transform: rotate(180deg); } 75% { transform: rotate(270deg) scale(1.1); } 100% { transform: rotate(360deg); } }
 .shake { animation: shakeit .45s ease; }
 @keyframes shakeit { 10%, 50%, 90% { transform: translateX(-5px); } 30%, 70% { transform: translateX(5px); } }
+
+/* pilihan bahasa transkrip, catatan, pemutar mini */
+.lang-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lang-pick .seg { flex-wrap: wrap; }
+.lang-pick .seg-opt { padding: 6px 12px; font-size: 12.5px; }
+.lang-hint { line-height: 1.45; text-wrap: pretty; }
+.note { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; padding: 10px 12px; border-radius: var(--radius-md); color: var(--color-text-muted);
+  background: color-mix(in srgb, #f0c98a 10%, var(--color-surface)); box-shadow: inset 0 0 0 1px rgba(240, 201, 138, .3); }
+.note i { color: #e0a94a; font-size: 17px; margin-top: 1px; flex-shrink: 0; }
+body.has-mini main { padding-bottom: calc(var(--mini-h, 260px) + 24px); }
+body.has-mini .player { bottom: calc(var(--mini-h, 260px) + 8px); }
+body.has-mini .toast { bottom: calc(var(--mini-h, 260px) + 16px); }
+.mini-status { flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap; }

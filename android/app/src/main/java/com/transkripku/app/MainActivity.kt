@@ -23,6 +23,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.webkit.WebViewAssetLoader
 import android.widget.Toast
 import androidx.media3.common.MediaItem
@@ -51,13 +52,17 @@ class MainActivity : Activity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var lightTheme = false
+    private var music: MusicPanel? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         YouTubeTranscript.init(this)
         web = WebView(this)
-        setContentView(web)
+        val root = FrameLayout(this)
+        root.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        setContentView(root)
+        music = MusicPanel(this, root) { mode, h -> emit("music", JSONObject().put("mode", mode).put("h", h)) }
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = true
@@ -99,12 +104,23 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
+        val m = music
+        when {
+            m != null && m.isFull -> m.setFull(false)
+            web.canGoBack() -> web.goBack()
+            else -> super.onBackPressed()
+        }
     }
+
+    // Musik YouTube hanya berjalan selama aplikasi terlihat (putar di latar belakang = fitur Premium).
+    override fun onPause() { music?.onBackground(); super.onPause() }
+    override fun onResume() { super.onResume(); music?.onForeground() }
 
     override fun onDestroy() {
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controller = null
+        music?.close()
+        music = null
         io.shutdownNow()
         web.destroy()
         super.onDestroy()
@@ -179,6 +195,7 @@ class MainActivity : Activity() {
 
     private fun applyTheme(light: Boolean) {
         lightTheme = light
+        music?.light = light
         val bg = if (light) Color.parseColor("#f7f6fb") else Color.parseColor("#12131d")
         window.statusBarColor = bg
         window.navigationBarColor = bg
@@ -193,10 +210,10 @@ class MainActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface
-        fun getTranscript(id: Int, input: String) {
+        fun getTranscript(id: Int, input: String, lang: String) {
             io.execute {
                 try {
-                    resolve(id, YouTubeTranscript.fetch(input))
+                    resolve(id, YouTubeTranscript.fetch(input, lang))
                 } catch (e: YouTubeTranscript.TranscriptException) {
                     reject(id, e.message ?: "Gagal mengambil transkrip.")
                 } catch (e: java.net.UnknownHostException) {
@@ -257,14 +274,22 @@ class MainActivity : Activity() {
             }
         }
 
+        /** Buka/pindahkan pemutar mini YouTube Music (panel melayang di dalam SiLengkap). */
         @JavascriptInterface
         fun openMusic(url: String) {
-            val target = if (url.startsWith("https://music.youtube.com/")) url else ReaderActivity.MUSIC_URL
+            val target = if (url.startsWith("https://music.youtube.com/")) url else MusicPanel.MUSIC_HOME
+            runOnUiThread { music?.light = lightTheme; music?.open(target) }
+        }
+
+        /** mode: "mini" | "full" | "close" */
+        @JavascriptInterface
+        fun musicMode(mode: String) {
             runOnUiThread {
-                startActivity(Intent(this@MainActivity, ReaderActivity::class.java)
-                    .putExtra(ReaderActivity.EXTRA_MODE, ReaderActivity.MODE_MUSIC)
-                    .putExtra(ReaderActivity.EXTRA_URL, target)
-                    .putExtra(ReaderActivity.EXTRA_LIGHT, lightTheme))
+                when (mode) {
+                    "mini" -> music?.setFull(false)
+                    "full" -> music?.setFull(true)
+                    "close" -> music?.close()
+                }
             }
         }
 

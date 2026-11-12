@@ -62,8 +62,25 @@ FINANSIAL_TAGS = {
     "emas": "emas antam komoditas minyak batu bara cpo nikel",
     "makro": "inflasi ekonomi pdb pertumbuhan apbn pajak defisit ekspor impor tarif",
 }
-FINANSIAL_TAG_LABEL = {"saham": "Saham", "rupiah": "Rupiah & Valas", "kripto": "Kripto", "perbankan": "Perbankan",
+FINANSIAL_TAG_LABEL = {"saham": "Saham", "rupiah": "Rupiah & Valas", "valas": "Dolar & Valas", "kripto": "Kripto", "perbankan": "Perbankan",
                        "emas": "Emas & Komoditas", "makro": "Ekonomi Makro"}
+
+# Berita Finansial AS (bahasa Inggris, media AS)
+FINANSIAL_US = [
+    {"url": gn_topic("BUSINESS", "us"), "name": "Google News"},
+    {"url": gn_search("stocks OR Wall Street OR Nasdaq OR earnings when:1d", "us"), "name": "Google News"},
+    {"url": gn_search("Federal Reserve OR inflation OR interest rates OR tariffs when:1d", "us"), "name": "Google News"},
+    {"url": gn_search("bitcoin OR crypto OR gold prices OR oil prices when:1d", "us"), "name": "Google News"},
+    {"url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664", "name": "CNBC"},
+]
+FINANSIAL_TAGS_US = {
+    "saham": "stocks stock shares nasdaq dow wall earnings ipo dividend rally selloff",
+    "valas": "dollar euro yen currency forex yuan treasury yields",
+    "kripto": "bitcoin crypto ethereum blockchain stablecoin token etf",
+    "perbankan": "bank banks fed federal reserve rates lending mortgage jpmorgan",
+    "emas": "gold oil crude commodities silver copper opec",
+    "makro": "inflation economy gdp jobs unemployment tariffs trade recession cpi",
+}
 
 # ---------------------------------------------------------------- Berita Teknologi
 TEKNOLOGI = [
@@ -81,6 +98,23 @@ TEKNOLOGI_TAGS = {
     "startup": "startup unicorn pendanaan investor e-commerce tokopedia gojek grab shopee fintech",
     "game": "game gim esports playstation nintendo xbox steam mobile legends",
     "sains": "sains antariksa nasa roket satelit penelitian ilmuwan iklim",
+}
+TEKNOLOGI_US = [
+    {"url": gn_topic("TECHNOLOGY", "us"), "name": "Google News"},
+    {"url": gn_search("artificial intelligence OR OpenAI OR AI chips OR Nvidia when:1d", "us"), "name": "Google News"},
+    {"url": gn_search("smartphone OR iPhone OR Android OR gadget when:1d", "us"), "name": "Google News"},
+    {"url": gn_search("cybersecurity OR data breach OR ransomware when:1d", "us"), "name": "Google News"},
+    {"url": "https://techcrunch.com/feed/", "name": "TechCrunch"},
+    {"url": "https://www.theverge.com/rss/index.xml", "name": "The Verge"},
+]
+TEKNOLOGI_TAGS_US = {
+    "ai": "ai openai chatgpt gemini claude llm nvidia chatbot robot deepseek anthropic",
+    "gadget": "smartphone iphone samsung pixel laptop tablet gadget camera chip snapdragon headset",
+    "aplikasi": "app apps whatsapp instagram tiktok google android ios update feature software windows",
+    "siber": "cybersecurity hacker hackers breach ransomware malware phishing leak vulnerability",
+    "startup": "startup startups funding unicorn investors fintech acquisition valuation",
+    "game": "game games gaming playstation nintendo xbox steam esports",
+    "sains": "science space nasa rocket satellite researchers climate",
 }
 TEKNOLOGI_TAG_LABEL = {"ai": "AI", "gadget": "Gadget", "aplikasi": "Aplikasi & Internet", "siber": "Keamanan Siber",
                        "startup": "Startup & Bisnis", "game": "Game", "sains": "Sains & Antariksa"}

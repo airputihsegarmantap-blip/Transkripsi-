@@ -54,13 +54,13 @@ object YouTubeTranscript {
     }
 
     private fun diskGet(id: String): JSONObject? = try {
-        diskDir?.let { File(it, "$id.json") }?.takeIf { it.exists() }?.let { JSONObject(it.readText()) }
+        diskDir?.let { File(it, "${id.replace(':', '_')}.json") }?.takeIf { it.exists() }?.let { JSONObject(it.readText()) }
     } catch (_: Exception) { null }
 
     private fun diskPut(id: String, data: JSONObject) {
         val dir = diskDir ?: return
         try {
-            File(dir, "$id.json").writeText(data.toString())
+            File(dir, "${id.replace(':', '_')}.json").writeText(data.toString())
             dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(80)?.forEach { it.delete() }
         } catch (_: Exception) {}
     }
@@ -85,10 +85,13 @@ object YouTubeTranscript {
         throw TranscriptException("Link YouTube tidak valid. Contoh: https://www.youtube.com/watch?v=XXXXXXXXXXX")
     }
 
-    fun fetch(input: String): JSONObject {
+    /** [lang]: "id" (terjemahkan otomatis ke Indonesia), "orig" (pertahankan bahasa asli), atau kode bahasa lain ("en", …). */
+    fun fetch(input: String, lang: String = "id"): JSONObject {
         val videoId = extractVideoId(input)
-        synchronized(cache) { cache[videoId]?.let { return it } }
-        diskGet(videoId)?.let { d -> synchronized(cache) { cache[videoId] = d }; return d.put("cached", true) }
+        val target = lang.trim().lowercase().let { if (it == "orig" || Regex("^[a-z]{2,3}$").matches(it)) it else "id" }
+        val key = "$videoId:$target"
+        synchronized(cache) { cache[key]?.let { return it } }
+        diskGet(key)?.let { d -> synchronized(cache) { cache[key] = d }; return d.put("cached", true) }
         val t0 = System.currentTimeMillis()
 
         var limited = false
@@ -101,19 +104,20 @@ object YouTubeTranscript {
                 if (!hasCaptions(player)) { checkPlayable(player); continue }
                 checkPlayable(player)
                 val tracks = player.getJSONObject("captions").getJSONObject("playerCaptionsTracklistRenderer").getJSONArray("captionTracks")
-                val (url, lang, source) = chooseTrack(tracks)
+                val (url, trackLang, source) = chooseTrack(tracks, target)
                 val segments = parseXml(withRetry { httpGet(url, WEB_UA) })
                 if (segments.length() == 0) { lastError = TranscriptException("Transkrip kosong — video mungkin tidak berisi ucapan."); continue }
                 val title = player.optJSONObject("videoDetails")?.optString("title")?.takeIf { it.isNotBlank() }
                 val result = JSONObject()
                     .put("video_id", videoId)
                     .put("title", title)
-                    .put("language", lang)
+                    .put("language", trackLang)
                     .put("source", source)
+                    .put("target", target)
                     .put("segments", segments)
                     .put("fetchMs", System.currentTimeMillis() - t0)
-                synchronized(cache) { cache[videoId] = result }
-                diskPut(videoId, result)
+                synchronized(cache) { cache[key] = result }
+                diskPut(key, result)
                 return result
             } catch (e: RateLimited) {
                 limited = true
@@ -208,18 +212,28 @@ object YouTubeTranscript {
         )
     }
 
-    private fun chooseTrack(tracks: JSONArray): Triple<String, String, String> {
+    /**
+     * Memilih subtitle sesuai bahasa yang diminta:
+     *  - "orig": bahasa asli video (subtitle otomatis = bahasa yang diucapkan; subtitle manual di bahasa itu diutamakan),
+     *  - "id" / "en" / kode lain: subtitle di bahasa itu bila ada, bila tidak diterjemahkan otomatis oleh YouTube
+     *    dari bahasa asli.
+     */
+    private fun chooseTrack(tracks: JSONArray, target: String): Triple<String, String, String> {
         data class Track(val url: String, val lang: String, val asr: Boolean, val translatable: Boolean)
         val list = (0 until tracks.length()).map {
             val t = tracks.getJSONObject(it)
             Track(t.getString("baseUrl").replace("&fmt=srv3", ""), t.optString("languageCode"),
                 t.optString("kind") == "asr", t.optBoolean("isTranslatable", false))
         }
-        list.firstOrNull { !it.asr && it.lang in ID_LANGS }?.let { return Triple(it.url, it.lang, "manual") }
-        list.firstOrNull { it.asr && it.lang in ID_LANGS }?.let { return Triple(it.url, it.lang, "otomatis") }
-        val base = list.firstOrNull { !it.asr } ?: list.first()
-        return if (base.translatable) Triple(base.url + "&tlang=id", "id", "terjemahan")
-        else Triple(base.url, base.lang, if (base.asr) "otomatis" else "manual")
+        fun source(t: Track) = Triple(t.url, t.lang, if (t.asr) "otomatis" else "manual")
+        val spoken = list.firstOrNull { it.asr }?.lang
+        val original = list.firstOrNull { !it.asr && it.lang == spoken } ?: list.firstOrNull { it.asr } ?: list.first()
+        if (target == "orig") return source(original)
+        val want = if (target == "id") ID_LANGS else listOf(target)
+        list.firstOrNull { !it.asr && it.lang in want }?.let { return source(it) }
+        list.firstOrNull { it.asr && it.lang in want }?.let { return source(it) }
+        val base = if (original.translatable) original else list.firstOrNull { it.translatable } ?: original
+        return if (base.translatable) Triple(base.url + "&tlang=" + target, target, "terjemahan") else source(base)
     }
 
     // ---------------------------------------------------------------- subtitle

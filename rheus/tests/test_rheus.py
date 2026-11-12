@@ -76,6 +76,15 @@ def fake_get(url):
         return rss(gn("Bank sentral AS tahan suku bunga, harga minyak dunia naik", "CNBC", 70, 1))
     if "turnbackhoax" in url or "cekfakta" in url:
         return rss(plain("[SALAH] Video Banjir Besar Rendam Monas Jakarta Hari Ini", "Video lama dari 2020.", 60))
+    if "en-US" in url and "topic/BUSINESS" in url:
+        return rss(gn("Wall Street rallies as Nasdaq hits record high on earnings", "CNBC", 20, 3),
+                   gn("Stocks rally: Nasdaq closes at record on strong earnings", "Reuters", 30, 1))
+    if "en-US" in url and "topic/TECHNOLOGY" in url:
+        return rss(gn("Nvidia unveils new AI chip as OpenAI demand surges", "The Verge", 25, 2),
+                   gn("Nvidia unveils new AI chip as OpenAI demand surges for training", "TechCrunch", 35, 2),
+                   gn("Cybersecurity firm reports ransomware breach at hospital chain", "Random Blog", 10, 0))
+    if "en-US" in url and "Federal" in url:
+        return rss(gn("Fed holds interest rates steady as inflation cools", "Bloomberg", 45, 2))
     if "topic/TECHNOLOGY" in url:
         return rss(gn("OpenAI rilis model AI baru, kecerdasan buatan makin canggih", "Kompas", 25, 3),
                    gn("OpenAI rilis model AI baru, kecerdasan buatan makin canggih sekali", "Detik", 40, 2))
@@ -288,7 +297,7 @@ def test_cloud_snapshot_and_retention(tmp_path):
     with gzip.open(os.path.join(out, "memory.json.gz"), "wb") as f:
         f.write(orjson.dumps({"utama:nasional": [old, recent]}))
     m = asyncio.run(cloud.run(out))
-    for name in ("manifest", "utama", "finansial", "teknologi", "viral-id", "viral-us", "btc-24j", "btc-7h", "btc-30h", "radio-id", "radio-us", "knowledge"):
+    for name in ("manifest", "utama", "finansial", "teknologi", "finansial-us", "teknologi-us", "viral-id", "viral-us", "btc-24j", "btc-7h", "btc-30h", "radio-id", "radio-us", "knowledge"):
         assert os.path.exists(os.path.join(out, name + ".json")), name
     assert os.path.getsize(os.path.join(out, "model", "punct.bin")) == 3 * (1 << 18) * 4
     u = json.load(open(os.path.join(out, "utama.json")))
@@ -353,3 +362,30 @@ def test_teknologi_tags_and_verified(tmp_path):
     hp = next(s for s in allst if "Samsung" in s["title"])
     assert "gadget" in hp["tags"]
     assert {t["id"] for t in d["tags"]} >= {"ai", "gadget", "siber"}
+
+
+def test_us_finansial_and_teknologi():
+    import asyncio
+
+    from rheus import learn, news
+
+    async def get_text(url, ttl=300):
+        return fake_get(url)
+
+    fetch.get_text = get_text
+    hoax = news.HoaxIndex([])
+    f = asyncio.run(news.build_finansial(learn.Brain(), {}, hoax, NOW, "us"))
+    assert f["region"] == "us"
+    allf = f["hot"] + f["list"]
+    rally = next(s for s in allf if "Nasdaq" in s["title"])
+    assert rally["verified"] and "saham" in rally["tags"]          # CNBC + Reuters = 2 media kredibel AS
+    fed = next(s for s in allf if "Fed holds" in s["title"])
+    assert "perbankan" in fed["tags"] and "makro" in fed["tags"]
+    assert {t["id"] for t in f["tags"]} >= {"saham", "valas", "kripto", "perbankan", "emas", "makro"}
+    t = asyncio.run(news.build_teknologi(learn.Brain(), {}, hoax, NOW, "us"))
+    allt = t["hot"] + t["list"]
+    nv = next(s for s in allt if "Nvidia" in s["title"])
+    assert nv["verified"] and "ai" in nv["tags"]
+    blog = next(s for s in allt if "ransomware" in s["title"])
+    assert not blog["credible"] and "siber" in blog["tags"]
+    assert all(s["credible"] and not s["clickbait"] for s in t["hot"])  # headline hot hanya media kredibel

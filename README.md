@@ -35,14 +35,14 @@ Versi sebelumnya bergantung pada server gratis. Server itu tertidur, sehingga ap
 
 | Menu | Isi |
 |---|---|
-| 🎬 Transkripsi Video | Link YouTube → transkrip rapi + ringkasan cepat (di HP) + **Ringkasan AI** oleh Rheus |
-| 💹 Berita Finansial | Saham/IHSG, rupiah & valas, kripto, perbankan, emas, makro |
-| 💻 Berita Teknologi | AI, gadget, aplikasi, keamanan siber, startup, game, sains |
+| 🎬 Transkripsi Video | Link YouTube → transkrip rapi + ringkasan cepat (di HP) + **Ringkasan AI** oleh Rheus. Pilihan bahasa: terjemahkan ke Indonesia, bahasa asli, atau English |
+| 💹 Berita Finansial | Saham, valas, kripto, perbankan, emas, makro — pilihan 🇮🇩 Indonesia / 🇺🇸 USA |
+| 💻 Berita Teknologi | AI, gadget, aplikasi, keamanan siber, startup, game, sains — pilihan 🇮🇩 / 🇺🇸 |
 | 📈 Prediksi Arah Bitcoin | Harga live, grafik 24j/7h/30h, arah, probabilitas, uji balik |
 | 📰 Berita Utama | Nasional & Internasional (Militer, Ekonomi, Hubungan Antarnegara, Geopolitik) |
 | 🔥 Berita Viral | Indonesia / USA, per media sosial & kategori |
 | 📻 Radio | Stasiun gratis Indonesia & USA — tetap berbunyi saat layar mati, sambung ulang otomatis |
-| 🎵 Musik Online | YouTube Music di dalam aplikasi |
+| 🎵 Musik Online | **Pemutar mini** YouTube Music yang melayang di dalam SiLengkap |
 | 🎮 Gim | 9 gim dengan musik & efek suara (**offline**) |
 | ✨ Tanya Rheus | Obrolan AI (Llama 3.2 3B + internet) dengan sumber bernomor |
 
@@ -83,8 +83,16 @@ Sebelum diaktifkan, Tanya Rheus tetap berfungsi dengan mesin pencari di HP, dan 
 Sembilan gim, semuanya dengan **efek suara dan musik chiptune buatan sendiri** (disintesis langsung, tanpa file audio) dan tombol bisu:
 **Petualangan Rheu** (platformer, level acak), **Invasi Galaksi** (tembak-tembakan), **Kepak Sayap** (ketuk untuk terbang), **Dino Lari** (lari tanpa akhir, siang-malam, lompat ganda), **Pecah Bata**, **Ular Neon**, **Ular Tangga**, **Sudoku**, **Minesweeper**. Gim arkade berjalan di mesin `web/games/engine.js`: 60 fps, partikel, guncangan layar, rekor per gim, jeda otomatis.
 
-### 🎵 Musik Online
-YouTube Music dibuka di dalam SiLengkap. Dua batasan dari pihak Google, bukan dari aplikasi: login harus lewat tombol **Masuk akun** (dibuka di Chrome), dan **putar di latar belakang hanya untuk YouTube Premium**. Untuk musik gratis yang tetap berbunyi saat layar mati, pakai menu Radio.
+### 🎵 Musik Online: pemutar mini
+YouTube Music dibuka sebagai **jendela kecil di bagian bawah layar** (`MusicPanel.kt`). Anda tetap bisa berpindah menu, membaca berita, atau bermain gim sementara musik berjalan. Tombol ⤢ memperbesar panel, ✕ menutupnya, dan radio otomatis dijeda saat musik dibuka. Batasan dari pihak Google, bukan dari aplikasi:
+- Musik **dijeda saat SiLengkap keluar dari layar** atau layar mati. Putar di latar belakang adalah fitur YouTube Premium, dan aplikasi ini sengaja tidak mengakalinya. Untuk musik gratis yang tetap berbunyi saat layar mati, pakai menu Radio.
+- Google tidak mengizinkan login di tampilan seperti ini, jadi tombol **Masuk** membuka Chrome. Login itu tidak terbawa ke panel, sehingga playlist pribadi dan Premium tidak terbaca di dalamnya.
+
+### 🇺🇸 Berita AS
+Berita Finansial dan Berita Teknologi punya pilihan Indonesia / USA. Berita AS memakai media AS (Reuters, CNBC, Bloomberg, TechCrunch, The Verge, dll.), dengan saringan clickbait, lencana Terverifikasi (≥2 media kredibel), dan headline hot hanya dari media kredibel yang sama seperti berita Indonesia. Isinya berbahasa Inggris. Saringan hoaks untuk berita AS belum ada, karena database klaim hoaks yang dipakai (TurnBackHoax, Cek Fakta Tempo) berbahasa Indonesia.
+
+### 🌐 Pilihan bahasa transkripsi
+Di halaman Transkripsi ada tiga pilihan: **Terjemahkan ke Indonesia** (bawaan), **Bahasa asli**, dan **English**. Terjemahan dilakukan oleh YouTube (terjemahan otomatis), bukan oleh Rheus, jadi kualitasnya mengikuti YouTube. Mengganti pilihan setelah hasil muncul langsung memproses ulang. Perapian tanda baca dan ringkasan cepat TranscriptBot dilatih untuk Bahasa Indonesia, jadi untuk video berbahasa lain aplikasi menampilkan catatan dan menyarankan **Ringkasan AI**, yang selalu menulis dalam Bahasa Indonesia.
 
 ## 🎬 Transkripsi cepat (kenapa tidak macet lagi)
 

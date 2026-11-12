@@ -1,7 +1,7 @@
 // Uji Rheus LLM (Cloudflare Worker) tanpa akun Cloudflare: Workers AI & internet ditiru.
 //   node eval/worker_test.mjs
 import assert from "node:assert/strict";
-import worker, { rank, parseCaptions, systemPrompt } from "../cloud/rheus-llm/worker.js";
+import worker, { rank, parseCaptions, systemPrompt, chooseTrack } from "../cloud/rheus-llm/worker.js";
 
 const now = Date.now() / 1000;
 const KB = { docs: [
@@ -73,5 +73,23 @@ assert.equal(t.segments[1].text, "apa kabar & selamat");
 assert.equal(t.via, "rheus-cloud");
 assert.equal(parseCaptions('<p t="1500" d="500">hai</p>')[0].start, 1.5);
 assert.ok(systemPrompt([]).includes("Tidak ada konteks"));
+
+// pilihan bahasa transkripsi
+const tk = [
+  { baseUrl: "https://yt/en-asr&fmt=srv3", languageCode: "en", kind: "asr", isTranslatable: true },
+  { baseUrl: "https://yt/id-manual", languageCode: "id", isTranslatable: true },
+  { baseUrl: "https://yt/en-manual", languageCode: "en", isTranslatable: true },
+];
+assert.deepEqual(chooseTrack(tk, "id"), { url: "https://yt/id-manual", language: "id", source: "manual" });
+assert.deepEqual(chooseTrack(tk, "orig"), { url: "https://yt/en-manual", language: "en", source: "manual" });  // video berbahasa Inggris: subtitle manual Inggris
+const en = [{ baseUrl: "https://yt/en-asr", languageCode: "en", kind: "asr", isTranslatable: true }];
+assert.deepEqual(chooseTrack(en, "id"), { url: "https://yt/en-asr&tlang=id", language: "id", source: "terjemahan" });
+assert.deepEqual(chooseTrack(en, "orig"), { url: "https://yt/en-asr", language: "en", source: "otomatis" });
+assert.equal(chooseTrack(en, "en").source, "otomatis");
+assert.equal(chooseTrack(en, "ja").url, "https://yt/en-asr&tlang=ja");
+r = await call("/transcript?v=abcdefghijk&lang=orig");
+assert.equal(JSON.parse(r.text).target, "orig");
+r = await call("/transcript?v=abcdefghijk&lang=%3Cscript%3E");
+assert.equal(JSON.parse(r.text).target, "id");   // masukan aneh → default
 
 console.log("Rheus LLM worker: semua uji lulus ✓");

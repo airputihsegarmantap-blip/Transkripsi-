@@ -197,9 +197,30 @@ export function parseCaptions(xml) {
   return out;
 }
 
+/**
+ * Pilih subtitle sesuai bahasa yang diminta (sama dengan aplikasi Android):
+ * "orig" = bahasa asli video; "id"/"en"/… = subtitle di bahasa itu, bila tidak ada diterjemahkan YouTube.
+ */
+export function chooseTrack(tracks, target) {
+  const list = tracks.map((t) => ({ url: String(t.baseUrl).replace("&fmt=srv3", ""), lang: t.languageCode || "", asr: t.kind === "asr", tr: !!t.isTranslatable }));
+  const spoken = (list.find((t) => t.asr) || {}).lang;
+  const original = list.find((t) => !t.asr && t.lang === spoken) || list.find((t) => t.asr) || list[0];
+  const src = (t) => ({ url: t.url, language: t.lang, source: t.asr ? "otomatis" : "manual" });
+  if (target === "orig") return src(original);
+  const want = target === "id" ? ["id", "in"] : [target];
+  const manual = list.find((t) => !t.asr && want.includes(t.lang));
+  if (manual) return src(manual);
+  const auto = list.find((t) => t.asr && want.includes(t.lang));
+  if (auto) return src(auto);
+  const base = original.tr ? original : list.find((t) => t.tr) || original;
+  return base.tr ? { url: base.url + "&tlang=" + target, language: target, source: "terjemahan" } : src(base);
+}
+
 async function transcript(url) {
   const v = url.searchParams.get("v") || "";
   if (!/^[A-Za-z0-9_-]{11}$/.test(v)) return json({ error: "ID video tidak valid." }, 400);
+  const lang = (url.searchParams.get("lang") || "id").toLowerCase();
+  const target = lang === "orig" || /^[a-z]{2,3}$/.test(lang) ? lang : "id";
   const clients = [
     { name: "ANDROID", id: "3", version: "20.10.38", ua: "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip", extra: { androidSdkVersion: 34 } },
     { name: "IOS", id: "5", version: "20.10.4", ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)", extra: { deviceModel: "iPhone16,2" } },
@@ -216,16 +237,14 @@ async function transcript(url) {
       const p = await r.json();
       const tracks = (((p.captions || {}).playerCaptionsTracklistRenderer || {}).captionTracks) || [];
       if (!tracks.length) { last = (p.playabilityStatus || {}).reason || "Video ini tidak punya subtitle."; continue; }
-      const pick = tracks.find((t) => t.kind !== "asr" && /^(id|in)$/.test(t.languageCode)) || tracks.find((t) => /^(id|in)$/.test(t.languageCode));
-      const base = pick || tracks.find((t) => t.kind !== "asr") || tracks[0];
-      const tl = !pick && base.isTranslatable ? "&tlang=id" : "";
-      const xr = await fetch(base.baseUrl.replace("&fmt=srv3", "") + tl, { headers: { "User-Agent": c.ua } });
+      const pick = chooseTrack(tracks, target);
+      const xr = await fetch(pick.url, { headers: { "User-Agent": c.ua } });
       if (xr.status === 429) { last = "YouTube juga membatasi server Rheus (429)."; continue; }
       const segments = parseCaptions(await xr.text());
       if (!segments.length) continue;
       return json({
-        video_id: v, title: (p.videoDetails || {}).title || null, language: tl ? "id" : base.languageCode,
-        source: tl ? "terjemahan" : base.kind === "asr" ? "otomatis" : "manual", segments, via: "rheus-cloud",
+        video_id: v, title: (p.videoDetails || {}).title || null, language: pick.language, source: pick.source,
+        target, segments, via: "rheus-cloud",
       });
     } catch (e) { last = "Gagal menghubungi YouTube dari server Rheus."; }
   }

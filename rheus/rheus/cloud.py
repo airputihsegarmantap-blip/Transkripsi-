@@ -73,9 +73,9 @@ def knowledge_docs(snap: dict) -> list[dict]:
     u = snap.get("utama") or {}
     for sec in (u.get("sections") or {}).values():
         add(sec["hot"] + sec["list"], "berita")
-    for kind in ("finansial", "teknologi"):
+    for kind in ("finansial", "teknologi", "finansial-us", "teknologi-us"):
         f = snap.get(kind) or {}
-        add(f.get("hot", []) + f.get("list", []), kind)
+        add(f.get("hot", []) + f.get("list", []), kind.split("-")[0])
     for r in ("id", "us"):
         v = snap.get("viral-" + r) or {}
         add(v.get("hot", []) + v.get("list", []), "viral")
@@ -122,6 +122,8 @@ async def run(out: str, skip_radio_hours: float = 6) -> dict:
         timed("utama", news.build_utama(brain, memory, hoax, now)),
         timed("finansial", news.build_finansial(brain, memory, hoax, now)),
         timed("teknologi", news.build_teknologi(brain, memory, hoax, now)),
+        timed("finansial-us", news.build_finansial(brain, memory, hoax, now, "us")),
+        timed("teknologi-us", news.build_teknologi(brain, memory, hoax, now, "us")),
         timed("viral-id", news.build_viral(brain, memory, hoax, "id", now)),
         timed("viral-us", news.build_viral(brain, memory, hoax, "us", now)),
         *(timed(f"btc-{tf}", btc.analyze(tf)) for tf in btc.TFS),
@@ -159,7 +161,7 @@ async def run(out: str, skip_radio_hours: float = 6) -> dict:
         "llm": ({"url": os.environ["RHEUS_LLM_URL"].rstrip("/"), "model": "Llama 3.2 3B Instruct"} if os.environ.get("RHEUS_LLM_URL") else None),
         "updatedAt": now, "buildSeconds": round(time.time() - t0, 1), "retentionHours": config.RETENTION_SECONDS / 3600,
         "files": {k: {"bytes": b} for k, b in sizes.items()}, "timings": timings,
-        "stories": {k: count(k) for k in ("utama", "finansial", "teknologi", "viral-id", "viral-us")},
+        "stories": {k: count(k) for k in ("utama", "finansial", "teknologi", "finansial-us", "teknologi-us", "viral-id", "viral-us")},
         "hoaxClaims": len(memory.get("_hoax", [])),
         "learning": {"tokensLearnedThisRun": brain.punct.seen - tokens_before, **brain.stats()},
         "model": model_meta,

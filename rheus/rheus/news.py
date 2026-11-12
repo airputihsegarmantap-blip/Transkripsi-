@@ -279,28 +279,32 @@ def _fin_tags(text: str) -> list[str]:
     return _tags(text, config.FINANSIAL_TAGS)
 
 
-async def _build_tagged(feeds, channel: str, title: str, tags: dict, labels: dict, brain, memory, hoax, now) -> dict:
+async def _build_tagged(feeds, channel: str, title: str, tags: dict, labels: dict, brain, memory, hoax, now, region: str = "id") -> dict:
     now = now or time.time()
     items, _, meta = await _collect(feeds, memory, channel, now, brain, hoax)
     stories = []
     for g in cluster(items):
         tg = _tags(" ".join(x["title"] + " " + x["excerpt"] for x in g), tags)
-        stories.append(_story(g, now, "id", [], {"tags": tg, "tagLabels": [labels[t] for t in tg]}))
+        stories.append(_story(g, now, region, [], {"tags": tg, "tagLabels": [labels[t] for t in tg]}))
     hot, rest = _rank(stories)
     counts = {t: sum(t in s["tags"] for s in stories) for t in tags}
-    return {"title": title, "updatedAt": now, "hot": hot, "list": rest,
+    return {"title": title, "region": region, "updatedAt": now, "hot": hot, "list": rest,
             "tags": [{"id": t, "label": labels[t], "count": counts[t]} for t in tags],
             "stats": _stats(items, stories, meta)}
 
 
-async def build_finansial(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None) -> dict:
-    return await _build_tagged(config.FINANSIAL, "finansial", "Berita Finansial", config.FINANSIAL_TAGS,
-                               config.FINANSIAL_TAG_LABEL, brain, memory, hoax, now)
+async def build_finansial(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None, region: str = "id") -> dict:
+    us = region == "us"
+    return await _build_tagged(config.FINANSIAL_US if us else config.FINANSIAL, "finansial:us" if us else "finansial", "Berita Finansial",
+                               config.FINANSIAL_TAGS_US if us else config.FINANSIAL_TAGS, config.FINANSIAL_TAG_LABEL,
+                               brain, memory, hoax, now, region)
 
 
-async def build_teknologi(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None) -> dict:
-    return await _build_tagged(config.TEKNOLOGI, "teknologi", "Berita Teknologi", config.TEKNOLOGI_TAGS,
-                               config.TEKNOLOGI_TAG_LABEL, brain, memory, hoax, now)
+async def build_teknologi(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None, region: str = "id") -> dict:
+    us = region == "us"
+    return await _build_tagged(config.TEKNOLOGI_US if us else config.TEKNOLOGI, "teknologi:us" if us else "teknologi", "Berita Teknologi",
+                               config.TEKNOLOGI_TAGS_US if us else config.TEKNOLOGI_TAGS, config.TEKNOLOGI_TAG_LABEL,
+                               brain, memory, hoax, now, region)
 
 
 # ====================================================================== Berita Viral
