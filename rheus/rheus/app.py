@@ -6,6 +6,7 @@ Endpoint utama (semua JSON):
   GET  /v1/health                     status server
   GET  /v1/news/utama                 Berita Utama (nasional & internasional + kategori)
   GET  /v1/news/finansial             Berita Finansial
+  GET  /v1/news/teknologi             Berita Teknologi
   GET  /v1/news/viral?region=id|us    Berita Viral per platform & kategori
   GET  /v1/btc?tf=24j|7h|30h          Analisa & prediksi arah Bitcoin
   GET  /v1/radio?region=id|us         Stasiun radio gratis
@@ -81,8 +82,8 @@ async def _utama():
     return d
 
 
-async def _finansial():
-    d = await news.build_finansial(brain(), STATE["memory"], await _hoax())
+async def _finansial(region="id"):
+    d = await news.build_finansial(brain(), STATE["memory"], await _hoax(), region=region)
     kb().add_stories(d["hot"] + d["list"], "finansial")
     return d
 
@@ -104,7 +105,7 @@ async def refresher():
     await asyncio.sleep(2)
     while True:
         t0 = time.time()
-        for key, fn, ttl in (("utama", _utama, 0), ("finansial", _finansial, 0), ("viral:id", lambda: _viral("id"), 0),
+        for key, fn, ttl in (("utama", _utama, 0), ("finansial:id", _finansial, 0), ("viral:id", lambda: _viral("id"), 0),
                              ("viral:us", lambda: _viral("us"), 0), ("btc:24j", lambda: _btc("24j"), 0)):
             with contextlib.suppress(Exception):
                 await cached(key, ttl, fn, force=True)
@@ -152,9 +153,20 @@ async def news_utama(refresh: bool = False):
     return await cached("utama", 600, _utama, force=refresh)
 
 
+async def _teknologi(region="id"):
+    d = await news.build_teknologi(brain(), STATE["memory"], await _hoax(), region=region)
+    kb().add_stories(d["hot"] + d["list"], "teknologi")
+    return d
+
+
+@app.get("/v1/news/teknologi")
+async def news_teknologi(region: str = Query("id", pattern="^(id|us)$"), refresh: bool = False):
+    return await cached(f"teknologi:{region}", 600, lambda: _teknologi(region), force=refresh)
+
+
 @app.get("/v1/news/finansial")
-async def news_finansial(refresh: bool = False):
-    return await cached("finansial", 600, _finansial, force=refresh)
+async def news_finansial(region: str = Query("id", pattern="^(id|us)$"), refresh: bool = False):
+    return await cached(f"finansial:{region}", 600, lambda: _finansial(region), force=refresh)
 
 
 @app.get("/v1/news/viral")

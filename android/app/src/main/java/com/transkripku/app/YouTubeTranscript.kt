@@ -3,7 +3,12 @@ package com.transkripku.app
 import android.text.Html
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.Context
+import java.io.File
 import java.io.IOException
+import java.net.CookieHandler
+import java.net.CookieManager
+import java.net.CookiePolicy
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
@@ -19,13 +24,47 @@ import java.net.URL
  * Hasil disimpan di cache memori: membuka video yang sama lagi langsung selesai.
  *
  * Prioritas subtitle: Indonesia manual → Indonesia otomatis → bahasa lain diterjemahkan ke Indonesia.
+ *
+ * Mengatasi "429 Too Many Requests" (YouTube membatasi IP; sering terjadi di data seluler karena
+ * banyak pengguna berbagi satu IP):
+ *   - hasil disimpan di disk → video yang sama tidak pernah meminta ke YouTube lagi,
+ *   - cookie & visitorData dipertahankan seperti aplikasi sungguhan,
+ *   - bila dibatasi: hormati Retry-After, lalu ganti klien (ANDROID → iOS → halaman web),
+ *   - bila tetap dibatasi: galat diawali "RATE_LIMIT|" sehingga aplikasi mencoba lewat Rheus Cloud.
  */
 object YouTubeTranscript {
 
     class TranscriptException(message: String) : Exception(message)
+    private class RateLimited(val retryAfterMs: Long) : IOException("429")
 
-    private const val CLIENT_VERSION = "20.10.38"
-    private const val ANDROID_UA = "com.google.android.youtube/$CLIENT_VERSION (Linux; U; Android 14) gzip"
+    private data class Client(val name: String, val id: String, val version: String, val ua: String, val extra: Map<String, Any>)
+    private val CLIENTS = listOf(
+        Client("ANDROID", "3", "20.10.38", "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip",
+            mapOf("androidSdkVersion" to 34, "osName" to "Android", "osVersion" to "14")),
+        Client("IOS", "5", "20.10.4", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+            mapOf("deviceMake" to "Apple", "deviceModel" to "iPhone16,2", "osName" to "iPhone", "osVersion" to "18.3.2.22D82")),
+    )
+    @Volatile private var visitorData = ""
+    private var diskDir: File? = null
+
+    /** Dipanggil sekali dari MainActivity: cache disk + cookie persisten. */
+    fun init(context: Context) {
+        diskDir = File(context.filesDir, "transcripts").apply { mkdirs() }
+        if (CookieHandler.getDefault() == null) CookieHandler.setDefault(CookieManager(null, CookiePolicy.ACCEPT_ALL))
+    }
+
+    private fun diskGet(id: String): JSONObject? = try {
+        diskDir?.let { File(it, "${id.replace(':', '_')}.json") }?.takeIf { it.exists() }?.let { JSONObject(it.readText()) }
+    } catch (_: Exception) { null }
+
+    private fun diskPut(id: String, data: JSONObject) {
+        val dir = diskDir ?: return
+        try {
+            File(dir, "${id.replace(':', '_')}.json").writeText(data.toString())
+            dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(80)?.forEach { it.delete() }
+        } catch (_: Exception) {}
+    }
+
     private const val WEB_UA =
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     private val ID_LANGS = listOf("id", "in")
@@ -46,59 +85,90 @@ object YouTubeTranscript {
         throw TranscriptException("Link YouTube tidak valid. Contoh: https://www.youtube.com/watch?v=XXXXXXXXXXX")
     }
 
-    fun fetch(input: String): JSONObject {
+    /** [lang]: "id" (terjemahkan otomatis ke Indonesia), "orig" (pertahankan bahasa asli), atau kode bahasa lain ("en", …). */
+    fun fetch(input: String, lang: String = "id"): JSONObject {
         val videoId = extractVideoId(input)
-        synchronized(cache) { cache[videoId]?.let { return it } }
+        val target = lang.trim().lowercase().let { if (it == "orig" || Regex("^[a-z]{2,3}$").matches(it)) it else "id" }
+        val key = "$videoId:$target"
+        synchronized(cache) { cache[key]?.let { return it } }
+        diskGet(key)?.let { d -> synchronized(cache) { cache[key] = d }; return d.put("cached", true) }
         val t0 = System.currentTimeMillis()
 
-        val player = try {
-            playerDirect(videoId)
-        } catch (e: TranscriptException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }?.takeIf { hasCaptions(it) } ?: playerViaPage(videoId)
-
-        checkPlayable(player)
-        val tracks = player.optJSONObject("captions")?.optJSONObject("playerCaptionsTracklistRenderer")?.optJSONArray("captionTracks")
-        if (tracks == null || tracks.length() == 0) {
-            throw TranscriptException("Video ini tidak punya subtitle, jadi belum bisa ditranskripsi.")
+        var limited = false
+        var lastError: TranscriptException? = null
+        // Coba setiap klien; jalur halaman web sebagai cadangan terakhir.
+        val attempts: List<() -> JSONObject> = CLIENTS.map { c -> { player(c, videoId) } } + listOf({ playerViaPage(videoId) })
+        for (attempt in attempts) {
+            try {
+                val player = withRetry { attempt() }
+                if (!hasCaptions(player)) { checkPlayable(player); continue }
+                checkPlayable(player)
+                val tracks = player.getJSONObject("captions").getJSONObject("playerCaptionsTracklistRenderer").getJSONArray("captionTracks")
+                val (url, trackLang, source) = chooseTrack(tracks, target)
+                val segments = parseXml(withRetry { httpGet(url, WEB_UA) })
+                if (segments.length() == 0) { lastError = TranscriptException("Transkrip kosong — video mungkin tidak berisi ucapan."); continue }
+                val title = player.optJSONObject("videoDetails")?.optString("title")?.takeIf { it.isNotBlank() }
+                val result = JSONObject()
+                    .put("video_id", videoId)
+                    .put("title", title)
+                    .put("language", trackLang)
+                    .put("source", source)
+                    .put("target", target)
+                    .put("segments", segments)
+                    .put("fetchMs", System.currentTimeMillis() - t0)
+                synchronized(cache) { cache[key] = result }
+                diskPut(key, result)
+                return result
+            } catch (e: RateLimited) {
+                limited = true
+            } catch (e: TranscriptException) {
+                lastError = e
+                if (e.message?.startsWith("Video") == true) throw e // video privat/dihapus: tidak perlu coba klien lain
+            } catch (e: SocketTimeoutException) {
+                lastError = TranscriptException("Koneksi ke YouTube terlalu lambat. Periksa internet lalu coba lagi.")
+            } catch (e: java.net.UnknownHostException) {
+                throw e
+            } catch (e: Exception) {
+                if (lastError == null) lastError = TranscriptException("Gagal mengambil subtitle: ${e.message}")
+            }
         }
-        val (url, lang, source) = chooseTrack(tracks)
-        val segments = parseXml(httpGet(url, WEB_UA))
-        if (segments.length() == 0) throw TranscriptException("Transkrip kosong — video mungkin tidak berisi ucapan.")
+        if (limited) throw TranscriptException("RATE_LIMIT|YouTube sedang membatasi permintaan dari jaringan ini (429).")
+        throw lastError ?: TranscriptException("Video ini tidak punya subtitle, jadi belum bisa ditranskripsi.")
+    }
 
-        val title = player.optJSONObject("videoDetails")?.optString("title")?.takeIf { it.isNotBlank() }
-        val result = JSONObject()
-            .put("video_id", videoId)
-            .put("title", title)
-            .put("language", lang)
-            .put("source", source)
-            .put("segments", segments)
-            .put("fetchMs", System.currentTimeMillis() - t0)
-        synchronized(cache) { cache[videoId] = result }
-        return result
+    /** Ulangi sekali bila dibatasi (429) dengan jeda Retry-After (maks. 4 detik). */
+    private fun <T> withRetry(block: () -> T): T = try {
+        block()
+    } catch (e: RateLimited) {
+        Thread.sleep(e.retryAfterMs.coerceIn(1500, 4000))
+        block()
     }
 
     // ---------------------------------------------------------------- player
-    private fun playerBody(videoId: String) = JSONObject()
-        .put("context", JSONObject().put("client", JSONObject()
-            .put("clientName", "ANDROID").put("clientVersion", CLIENT_VERSION)
-            .put("androidSdkVersion", 34).put("hl", "id").put("gl", "ID")))
-        .put("videoId", videoId)
-        .put("contentCheckOk", true).put("racyCheckOk", true)
-        .toString()
+    private fun playerBody(c: Client, videoId: String): String {
+        val client = JSONObject().put("clientName", c.name).put("clientVersion", c.version).put("hl", "id").put("gl", "ID")
+        c.extra.forEach { (k, v) -> client.put(k, v) }
+        if (visitorData.isNotEmpty()) client.put("visitorData", visitorData)
+        return JSONObject()
+            .put("context", JSONObject().put("client", client))
+            .put("videoId", videoId)
+            .put("contentCheckOk", true).put("racyCheckOk", true)
+            .toString()
+    }
 
     /** Jalur cepat: langsung ke endpoint player tanpa membuka halaman video. */
-    private fun playerDirect(videoId: String): JSONObject {
-        val c = open("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", ANDROID_UA)
-        c.requestMethod = "POST"
-        c.doOutput = true
-        c.setRequestProperty("Content-Type", "application/json")
-        c.setRequestProperty("X-YouTube-Client-Name", "3")
-        c.setRequestProperty("X-YouTube-Client-Version", CLIENT_VERSION)
-        c.outputStream.use { it.write(playerBody(videoId).toByteArray(Charsets.UTF_8)) }
-        return JSONObject(read(c))
+    private fun player(c: Client, videoId: String): JSONObject {
+        val conn = open("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", c.ua)
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("X-YouTube-Client-Name", c.id)
+        conn.setRequestProperty("X-YouTube-Client-Version", c.version)
+        if (visitorData.isNotEmpty()) conn.setRequestProperty("X-Goog-Visitor-Id", visitorData)
+        conn.outputStream.use { it.write(playerBody(c, videoId).toByteArray(Charsets.UTF_8)) }
+        val json = JSONObject(read(conn))
+        json.optJSONObject("responseContext")?.optString("visitorData")?.takeIf { it.isNotEmpty() }?.let { visitorData = it }
+        return json
     }
 
     /** Jalur cadangan: ambil kunci API dari halaman video lalu panggil endpoint player. */
@@ -116,11 +186,11 @@ object YouTubeTranscript {
                 if (html.contains("class=\"g-recaptcha\"")) "YouTube meminta verifikasi (captcha). Coba lagi sebentar lagi."
                 else "Gagal membaca halaman video YouTube."
             )
-        val c = open("https://www.youtube.com/youtubei/v1/player?key=$apiKey&prettyPrint=false", ANDROID_UA, cookie)
+        val c = open("https://www.youtube.com/youtubei/v1/player?key=$apiKey&prettyPrint=false", CLIENTS[0].ua, cookie)
         c.requestMethod = "POST"
         c.doOutput = true
         c.setRequestProperty("Content-Type", "application/json")
-        c.outputStream.use { it.write(playerBody(videoId).toByteArray(Charsets.UTF_8)) }
+        c.outputStream.use { it.write(playerBody(CLIENTS[0], videoId).toByteArray(Charsets.UTF_8)) }
         return JSONObject(read(c))
     }
 
@@ -142,18 +212,28 @@ object YouTubeTranscript {
         )
     }
 
-    private fun chooseTrack(tracks: JSONArray): Triple<String, String, String> {
+    /**
+     * Memilih subtitle sesuai bahasa yang diminta:
+     *  - "orig": bahasa asli video (subtitle otomatis = bahasa yang diucapkan; subtitle manual di bahasa itu diutamakan),
+     *  - "id" / "en" / kode lain: subtitle di bahasa itu bila ada, bila tidak diterjemahkan otomatis oleh YouTube
+     *    dari bahasa asli.
+     */
+    private fun chooseTrack(tracks: JSONArray, target: String): Triple<String, String, String> {
         data class Track(val url: String, val lang: String, val asr: Boolean, val translatable: Boolean)
         val list = (0 until tracks.length()).map {
             val t = tracks.getJSONObject(it)
             Track(t.getString("baseUrl").replace("&fmt=srv3", ""), t.optString("languageCode"),
                 t.optString("kind") == "asr", t.optBoolean("isTranslatable", false))
         }
-        list.firstOrNull { !it.asr && it.lang in ID_LANGS }?.let { return Triple(it.url, it.lang, "manual") }
-        list.firstOrNull { it.asr && it.lang in ID_LANGS }?.let { return Triple(it.url, it.lang, "otomatis") }
-        val base = list.firstOrNull { !it.asr } ?: list.first()
-        return if (base.translatable) Triple(base.url + "&tlang=id", "id", "terjemahan")
-        else Triple(base.url, base.lang, if (base.asr) "otomatis" else "manual")
+        fun source(t: Track) = Triple(t.url, t.lang, if (t.asr) "otomatis" else "manual")
+        val spoken = list.firstOrNull { it.asr }?.lang
+        val original = list.firstOrNull { !it.asr && it.lang == spoken } ?: list.firstOrNull { it.asr } ?: list.first()
+        if (target == "orig") return source(original)
+        val want = if (target == "id") ID_LANGS else listOf(target)
+        list.firstOrNull { !it.asr && it.lang in want }?.let { return source(it) }
+        list.firstOrNull { it.asr && it.lang in want }?.let { return source(it) }
+        val base = if (original.translatable) original else list.firstOrNull { it.translatable } ?: original
+        return if (base.translatable) Triple(base.url + "&tlang=" + target, target, "terjemahan") else source(base)
     }
 
     // ---------------------------------------------------------------- subtitle
@@ -194,7 +274,7 @@ object YouTubeTranscript {
     private fun read(c: HttpURLConnection): String {
         try {
             val code = c.responseCode
-            if (code == 429) throw TranscriptException("YouTube membatasi permintaan (429). Tunggu sebentar lalu coba lagi.")
+            if (code == 429) throw RateLimited((c.getHeaderField("Retry-After")?.trim()?.toLongOrNull() ?: 2) * 1000)
             if (code >= 400) throw IOException("HTTP $code dari YouTube")
             return c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         } catch (e: SocketTimeoutException) {

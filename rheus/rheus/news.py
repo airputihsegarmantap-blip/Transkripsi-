@@ -270,23 +270,41 @@ async def build_utama(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | 
 
 
 # ====================================================================== Berita Finansial
-def _fin_tags(text: str) -> list[str]:
+def _tags(text: str, table: dict) -> list[str]:
     ws = set(re.findall(r"[a-z0-9]+", text.lower()))
-    return [k for k, v in config.FINANSIAL_TAGS.items() if ws & set(v.split())]
+    return [k for k, v in table.items() if ws & set(v.split())]
 
 
-async def build_finansial(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None) -> dict:
+def _fin_tags(text: str) -> list[str]:
+    return _tags(text, config.FINANSIAL_TAGS)
+
+
+async def _build_tagged(feeds, channel: str, title: str, tags: dict, labels: dict, brain, memory, hoax, now, region: str = "id") -> dict:
     now = now or time.time()
-    items, _, meta = await _collect(config.FINANSIAL, memory, "finansial", now, brain, hoax)
+    items, _, meta = await _collect(feeds, memory, channel, now, brain, hoax)
     stories = []
     for g in cluster(items):
-        tags = _fin_tags(" ".join(x["title"] + " " + x["excerpt"] for x in g))
-        stories.append(_story(g, now, "id", [], {"tags": tags, "tagLabels": [config.FINANSIAL_TAG_LABEL[t] for t in tags]}))
+        tg = _tags(" ".join(x["title"] + " " + x["excerpt"] for x in g), tags)
+        stories.append(_story(g, now, region, [], {"tags": tg, "tagLabels": [labels[t] for t in tg]}))
     hot, rest = _rank(stories)
-    counts = {t: sum(t in s["tags"] for s in stories) for t in config.FINANSIAL_TAGS}
-    return {"title": "Berita Finansial", "updatedAt": now, "hot": hot, "list": rest,
-            "tags": [{"id": t, "label": config.FINANSIAL_TAG_LABEL[t], "count": counts[t]} for t in config.FINANSIAL_TAGS],
+    counts = {t: sum(t in s["tags"] for s in stories) for t in tags}
+    return {"title": title, "region": region, "updatedAt": now, "hot": hot, "list": rest,
+            "tags": [{"id": t, "label": labels[t], "count": counts[t]} for t in tags],
             "stats": _stats(items, stories, meta)}
+
+
+async def build_finansial(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None, region: str = "id") -> dict:
+    us = region == "us"
+    return await _build_tagged(config.FINANSIAL_US if us else config.FINANSIAL, "finansial:us" if us else "finansial", "Berita Finansial",
+                               config.FINANSIAL_TAGS_US if us else config.FINANSIAL_TAGS, config.FINANSIAL_TAG_LABEL,
+                               brain, memory, hoax, now, region)
+
+
+async def build_teknologi(brain: Brain, memory: dict, hoax: HoaxIndex, now: float | None = None, region: str = "id") -> dict:
+    us = region == "us"
+    return await _build_tagged(config.TEKNOLOGI_US if us else config.TEKNOLOGI, "teknologi:us" if us else "teknologi", "Berita Teknologi",
+                               config.TEKNOLOGI_TAGS_US if us else config.TEKNOLOGI_TAGS, config.TEKNOLOGI_TAG_LABEL,
+                               brain, memory, hoax, now, region)
 
 
 # ====================================================================== Berita Viral

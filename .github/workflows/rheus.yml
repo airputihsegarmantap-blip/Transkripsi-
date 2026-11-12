@@ -34,7 +34,10 @@ jobs:
         working-directory: rheus
         run: python -m rheus.train --wiki-pages 2000 --epochs 2 --out rheus/models/brain.pkl
 
-      - name: Paritas TranscriptBot 3 — versi HP (JS) vs Python
+      - name: Uji Rheus LLM (worker, tanpa Cloudflare)
+        run: node eval/worker_test.mjs
+
+      - name: Paritas TranscriptBot — versi HP (JS) vs Python
         run: python eval/parity_tb3.py
 
       - name: Rheus Cloud — satu putaran dengan sumber sungguhan

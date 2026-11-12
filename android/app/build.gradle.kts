@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        versionName = "2.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
     }
 
     signingConfigs {
@@ -52,4 +52,11 @@ android {
 dependencies {
     // WebViewAssetLoader: menyajikan aset lewat https internal (fetch model & data lebih cepat dan aman).
     implementation("androidx.webkit:webkit:1.12.1")
+    // Radio: ExoPlayer (HLS, ICY, sambung ulang) + MediaSession (notifikasi, layar kunci, headset).
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
+    implementation("androidx.media3:media3-session:1.4.1")
+    implementation("com.google.guava:guava:33.3.1-android")
+    // Chrome Custom Tab untuk login Google di Musik Online.
+    implementation("androidx.browser:browser:1.8.0")
 }

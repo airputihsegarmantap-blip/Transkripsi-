@@ -1,4 +1,4 @@
-# SiLengkap
+# SiLengkap 2.0
 
 <img src="web/icon-192.png" alt="Logo SiLengkap" width="88">
 
@@ -7,7 +7,8 @@ Prinsip: **Fast · Accurate · Cool**.
 
 | Bagian | Isi | Berjalan di |
 |---|---|---|
-| **Aplikasi SiLengkap** (`android/` + tampilan `web/`) | Menu, tampilan, **TranscriptBot 3** (di HP) | HP Android (APK) |
+| **Aplikasi SiLengkap 2.0** (`android/` + tampilan `web/`) | Menu, tampilan, radio, gim, **TranscriptBot 4** (di HP) | HP Android (APK) |
+| **Rheus LLM** (`cloud/rheus-llm/`) | Obrolan AI & ringkasan AI: Llama 3.2 3B + konteks internet | Cloudflare Workers AI, gratis |
 | **Rheus Cloud** (`rheus/` + `.github/workflows/rheus-cloud.yml`) | "Otak": mengumpulkan, memverifikasi, dan mempelajari berita; analisa Bitcoin; melatih model TranscriptBot | GitHub Actions, gratis, **tanpa server yang bisa tertidur** |
 
 ## ⚡ Arsitektur Rheus Cloud (kenapa sekarang cepat)
@@ -34,21 +35,71 @@ Versi sebelumnya bergantung pada server gratis. Server itu tertidur, sehingga ap
 
 | Menu | Isi |
 |---|---|
-| 🎬 Transkripsi Video | Link YouTube → transkrip lengkap yang dirapikan + ringkasan. **Semua diproses di HP**, tanpa server. |
-| 💹 Berita Finansial | Saham/IHSG, rupiah & valas, kripto, perbankan, emas, makro, dengan filter tag |
-| 📈 Prediksi Arah Bitcoin | Harga **live** (diperbarui setiap 20 detik), grafik 24j/7h/30h, arah, probabilitas, uji balik |
+| 🎬 Transkripsi Video | Link YouTube → transkrip rapi + ringkasan cepat (di HP) + **Ringkasan AI** oleh Rheus. Pilihan bahasa: terjemahkan ke Indonesia, bahasa asli, atau English |
+| 💹 Berita Finansial | Saham, valas, kripto, perbankan, emas, makro — pilihan 🇮🇩 Indonesia / 🇺🇸 USA |
+| 💻 Berita Teknologi | AI, gadget, aplikasi, keamanan siber, startup, game, sains — pilihan 🇮🇩 / 🇺🇸 |
+| 📈 Prediksi Arah Bitcoin | Harga live, grafik 24j/7h/30h, arah, probabilitas, uji balik |
 | 📰 Berita Utama | Nasional & Internasional (Militer, Ekonomi, Hubungan Antarnegara, Geopolitik) |
 | 🔥 Berita Viral | Indonesia / USA, per media sosial & kategori |
-| 📻 Radio | Stasiun gratis Indonesia & USA |
-| 🎮 Gim | Dino, Ular Tangga, Sudoku, Minesweeper (**offline**) |
-| ✨ Tanya Rheus | Pencarian BM25 **di HP** atas semua berita 48 jam terakhir |
+| 📻 Radio | Stasiun gratis Indonesia & USA — tetap berbunyi saat layar mati, sambung ulang otomatis |
+| 🎵 Musik Online | **Pemutar mini** YouTube Music yang melayang di dalam SiLengkap |
+| 🎮 Gim | 9 gim dengan musik & efek suara (**offline**) |
+| ✨ Tanya Rheus | Obrolan AI (Llama 3.2 3B + internet) dengan sumber bernomor |
+
+Semua berita dibuka **di dalam aplikasi** dengan **Mode Baca** otomatis (isi artikel bersih tanpa iklan; tombol **Aa** untuk kembali ke halaman asli). Tema **gelap / terang / otomatis** ada di Pengaturan.
+
+## 🆕 Yang baru di 2.0
+
+### 📻 Radio tidak lagi putus-putus
+Dulu radio diputar oleh pemutar web di dalam aplikasi. Pemutar itu menolak aliran `http://`, tidak mengenal sebagian format, dimatikan Android saat layar mati, dan tidak pernah menyambung ulang. Sekarang radio diputar **ExoPlayer (Media3)** di layanan latar belakang (`RadioService.kt`):
+- memutar MP3, AAC/AAC+, OGG, **HLS**, dan daftar putar `.pls`/`.m3u`, termasuk aliran `http://`;
+- **menyambung ulang otomatis** saat sinyal putus (jeda bertahap 1–15 detik, pindah ke alamat cadangan, dan langsung menyambung saat internet kembali);
+- notifikasi dengan tombol putar/jeda, kontrol dari layar kunci dan headset, serta judul lagu yang sedang diputar;
+- daftar stasiun hanya berisi stasiun yang **lolos pengecekan terakhir** Radio Browser, diperbarui setiap 6 jam.
+
+### 🎬 Mengatasi "429 – YouTube membatasi permintaan"
+YouTube membatasi per alamat IP. Di data seluler, banyak pengguna berbagi satu IP, sehingga batas itu cepat tercapai. Yang dilakukan aplikasi sekarang:
+1. **Simpanan di HP:** video yang pernah ditranskripsi tidak pernah meminta ke YouTube lagi.
+2. **Berperilaku seperti aplikasi sungguhan:** cookie dan identitas pengunjung dipertahankan.
+3. **Ganti jalur:** bila dibatasi, aplikasi menunggu sesuai permintaan YouTube lalu mencoba klien Android → iOS → halaman web.
+4. **Lewat Rheus Cloud:** bila HP tetap dibatasi, subtitle diambil server Rheus LLM (alamat IP lain).
+5. Bila semuanya gagal, muncul petunjuk jelas (tunggu 1–2 menit, ganti Wi-Fi/data, atau mode pesawat sebentar).
+
+### 🧠 Rheus sekarang LLM
+"Tanya Rheus" dan "Ringkasan AI" memakai **Llama 3.2 3B Instruct** yang dijalankan di cloud (**Cloudflare Workers AI**, paket gratis). Kodenya di `cloud/rheus-llm/worker.js`. Sebelum menjawab, Rheus mengambil konteks segar dari internet: berita 48 jam terakhir dari Rheus Cloud (sudah disaring hoaks), Wikipedia, dan harga Bitcoin live. Jawaban menyertakan nomor sumber yang bisa diketuk.
+
+**Cara mengaktifkan (sekali saja, gratis):**
+1. Daftar di https://dash.cloudflare.com (tanpa kartu kredit).
+2. Salin **Account ID** (halaman Workers & Pages, kolom kanan).
+3. Buat token di **My Profile → API Tokens → Create Token → template "Edit Cloudflare Workers"**, lalu tambahkan izin **Account → Workers AI → Read**.
+4. Di GitHub: **Settings → Secrets and variables → Actions → New repository secret**, isi `CLOUDFLARE_ACCOUNT_ID` dan `CLOUDFLARE_API_TOKEN`.
+5. Jalankan workflow **Rheus LLM** dari tab Actions. Dalam ±30 menit aplikasi menemukan alamatnya sendiri lewat Rheus Cloud — APK tidak perlu diunduh ulang.
+
+Sebelum diaktifkan, Tanya Rheus tetap berfungsi dengan mesin pencari di HP, dan tombol Ringkasan AI tidak ditampilkan.
+
+> **Catatan jujur:** kualitas jawaban setara model 3 miliar parameter: bagus untuk merangkum dan menjawab dari konteks, tetapi bisa keliru pada penalaran rumit. Paket gratis Cloudflare dibatasi ±10.000 "neuron" per hari (kira-kira ratusan jawaban); bila habis, aplikasi otomatis kembali ke mesin pencari.
+
+### 🎮 Gim 2.0
+Sembilan gim, semuanya dengan **efek suara dan musik chiptune buatan sendiri** (disintesis langsung, tanpa file audio) dan tombol bisu:
+**Petualangan Rheu** (platformer, level acak), **Invasi Galaksi** (tembak-tembakan), **Kepak Sayap** (ketuk untuk terbang), **Dino Lari** (lari tanpa akhir, siang-malam, lompat ganda), **Pecah Bata**, **Ular Neon**, **Ular Tangga**, **Sudoku**, **Minesweeper**. Gim arkade berjalan di mesin `web/games/engine.js`: 60 fps, partikel, guncangan layar, rekor per gim, jeda otomatis.
+
+### 🎵 Musik Online: pemutar mini
+YouTube Music dibuka sebagai **jendela kecil di bagian bawah layar** (`MusicPanel.kt`). Anda tetap bisa berpindah menu, membaca berita, atau bermain gim sementara musik berjalan. Tombol ⤢ memperbesar panel, ✕ menutupnya, dan radio otomatis dijeda saat musik dibuka. Batasan dari pihak Google, bukan dari aplikasi:
+- Musik **dijeda saat SiLengkap keluar dari layar** atau layar mati. Putar di latar belakang adalah fitur YouTube Premium, dan aplikasi ini sengaja tidak mengakalinya. Untuk musik gratis yang tetap berbunyi saat layar mati, pakai menu Radio.
+- Google tidak mengizinkan login di tampilan seperti ini, jadi tombol **Masuk** membuka Chrome. Login itu tidak terbawa ke panel, sehingga playlist pribadi dan Premium tidak terbaca di dalamnya.
+
+### 🇺🇸 Berita AS
+Berita Finansial dan Berita Teknologi punya pilihan Indonesia / USA. Berita AS memakai media AS (Reuters, CNBC, Bloomberg, TechCrunch, The Verge, dll.), dengan saringan clickbait, lencana Terverifikasi (≥2 media kredibel), dan headline hot hanya dari media kredibel yang sama seperti berita Indonesia. Isinya berbahasa Inggris. Saringan hoaks untuk berita AS belum ada, karena database klaim hoaks yang dipakai (TurnBackHoax, Cek Fakta Tempo) berbahasa Indonesia.
+
+### 🌐 Pilihan bahasa transkripsi
+Di halaman Transkripsi ada tiga pilihan: **Terjemahkan ke Indonesia** (bawaan), **Bahasa asli**, dan **English**. Terjemahan dilakukan oleh YouTube (terjemahan otomatis), bukan oleh Rheus, jadi kualitasnya mengikuti YouTube. Mengganti pilihan setelah hasil muncul langsung memproses ulang. Perapian tanda baca dan ringkasan cepat TranscriptBot dilatih untuk Bahasa Indonesia, jadi untuk video berbahasa lain aplikasi menampilkan catatan dan menyarankan **Ringkasan AI**, yang selalu menulis dalam Bahasa Indonesia.
 
 ## 🎬 Transkripsi cepat (kenapa tidak macet lagi)
 
 Dulu prosesnya: HP membuka halaman YouTube (berat, ±1 MB), mengirim subtitle ke server yang mungkin sedang tidur, lalu menunggu. Proses itu bisa "macet di 25%". Sekarang:
 
 1. **Subtitle** diambil langsung dari endpoint player YouTube dengan 2 permintaan kecil (`YouTubeTranscript.kt`). Halaman video hanya dipakai sebagai cadangan. Setiap permintaan punya batas waktu (7 dtk sambung / 12 dtk baca), dan seluruh proses dibatasi 30 dtk, sehingga **tidak pernah macet tanpa pesan**.
-2. **TranscriptBot 3 berjalan di HP** (`web/transcriptbot.js`). Ini port JavaScript dari versi Python. Model ML tanda baca & huruf kapital dilatih Rheus Cloud dan dibundel di APK. Hasilnya **identik 100%** dengan versi Python (`eval/parity_tb3.py`). Video ±15 ribu kata selesai diolah dalam ±0,1–0,3 detik.
+2. **TranscriptBot 4 berjalan di HP** (`web/transcriptbot.js`). Ini port JavaScript dari versi Python. Model ML tanda baca & huruf kapital dilatih Rheus Cloud dan dibundel di APK. Hasilnya **identik 100%** dengan versi Python (`eval/parity_tb3.py`). Video ±15 ribu kata selesai diolah dalam ±0,1–0,3 detik.
 3. Video yang pernah dibuka disimpan di cache, jadi membukanya lagi langsung selesai.
 
 Aplikasi menampilkan tahap proses dan stopwatch ("Selesai dalam x detik").
@@ -80,7 +131,7 @@ Kode Python di folder `rheus/`. Ia dibangun dengan library open-source dari GitH
 
 Akurasi diukur **prequential**: setiap contoh baru ditebak dulu, baru dipelajari. Jadi angka akurasinya jujur, dan riwayatnya bisa dilihat di `GET /v1/learn`. Otak disimpan berkala ke disk.
 
-> **Catatan jujur:** Rheus bukan LLM generatif seperti ChatGPT. Ia **prototipe** machine learning kecil yang berjalan di server gratis. "Tanya Rheus" adalah langkah pertama ke arah LLM: Rheus mencari potongan informasi paling relevan (BM25) dan menyusunnya menjadi jawaban beserta sumbernya. Ia belum mengarang kalimat sendiri.
+> **Dua lapis Rheus:** model kecil di atas (tanda baca, huruf kapital, kategori) terus belajar dari berita dan dipakai untuk merapikan transkrip di HP. Untuk percakapan dan ringkasan AI, Rheus memakai LLM Llama 3.2 3B di cloud (lihat "Rheus sekarang LLM").
 
 ### API (opsional)
 

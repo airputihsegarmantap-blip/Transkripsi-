@@ -26,10 +26,37 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
+// ---------------------------------------------------------------------- pengaturan
+const Settings = (window.SLSettings = {
+  theme: store.get("set-theme", "auto"), // auto | dark | light
+  sfx: store.get("set-sfx", "1") === "1",
+  music: store.get("set-music", "1") === "1",
+  haptic: store.get("set-haptic", "1") === "1",
+  set(k, v) { this[k] = v; store.set("set-" + k, typeof v === "boolean" ? (v ? "1" : "0") : v); if (k === "theme") applyTheme(); },
+});
+const darkMQ = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+function applyTheme() {
+  const light = Settings.theme === "light" || (Settings.theme === "auto" && darkMQ && !darkMQ.matches);
+  document.documentElement.dataset.theme = light ? "light" : "dark";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = light ? "#f6f5fb" : "#12131d";
+  if (isApp && typeof window.Native.setTheme === "function") try { Native.setTheme(light); } catch {}
+  const b = document.getElementById("themeBtn");
+  if (b) b.innerHTML = `<i class="ph ${light ? "ph-moon" : "ph-sun"}" style="font-size:18px"></i>`;
+}
+if (darkMQ && darkMQ.addEventListener) darkMQ.addEventListener("change", () => Settings.theme === "auto" && applyTheme());
+applyTheme();
+
 let lastHaptic = 0;
-function haptic() { const t = Date.now(); if (isApp && t - lastHaptic > 60) { lastHaptic = t; try { Native.haptic(); } catch {} } }
+function haptic() { const t = Date.now(); if (isApp && Settings.haptic && t - lastHaptic > 60) { lastHaptic = t; try { Native.haptic(); } catch {} } }
 const Platform = {
   open(url) { if (!url) return; if (isApp) Native.openUrl(url); else window.open(url, "_blank", "noopener"); },
+  /** Buka artikel di dalam aplikasi (Mode Baca otomatis). */
+  read(url, title) {
+    if (!url) return;
+    if (isApp && typeof Native.openArticle === "function") Native.openArticle(url, title || "");
+    else window.open(url, "_blank", "noopener");
+  },
   copy(text) { if (isApp) Native.copy(text); else navigator.clipboard && navigator.clipboard.writeText(text).then(() => toast("Tersalin")); },
   share(title, text) { if (isApp) Native.share(title, text); else Platform.copy(text); },
 };
@@ -65,29 +92,38 @@ const Cloud = {
 // ====================================================================== menu & state
 const MENU = [
   { id: "transcribe", label: "Transkripsi Video", desc: "YouTube → transkrip rapi & ringkasan", icon: "ph-waveform", hue: 255 },
-  { id: "finansial", label: "Berita Finansial", desc: "Saham, rupiah, kripto, ekonomi", icon: "ph-chart-bar", hue: 160 },
+  { id: "finansial", label: "Berita Finansial", desc: "Saham, valas, kripto, ekonomi (ID & AS)", icon: "ph-chart-bar", hue: 160 },
+  { id: "teknologi", label: "Berita Teknologi", desc: "AI, gadget, aplikasi, siber (ID & AS)", icon: "ph-cpu", hue: 190 },
   { id: "btc", label: "Prediksi Arah Bitcoin", desc: "Harga live, arah, probabilitas", icon: "ph-currency-btc", hue: 35 },
   { id: "utama", label: "Berita Utama", desc: "Nasional & internasional", icon: "ph-newspaper", hue: 210 },
   { id: "viral", label: "Berita Viral", desc: "Per media sosial & kategori", icon: "ph-fire", hue: 345 },
   { id: "radio", label: "Radio", desc: "Stasiun radio gratis", icon: "ph-radio", hue: 290 },
-  { id: "games", label: "Gim", desc: "Dino, Ular Tangga, Sudoku, Minesweeper", icon: "ph-game-controller", hue: 100, offline: true },
+  { id: "musik", label: "Musik Online", desc: "YouTube Music di dalam aplikasi", icon: "ph-music-notes", hue: 320 },
+  { id: "games", label: "Gim", desc: "9 gim dengan musik & efek suara", icon: "ph-game-controller", hue: 100, offline: true },
 ];
 const GAMES = [
-  { id: "dino", label: "Gim Dino", desc: "Lompat, hindari kaktus", icon: "ph-person-simple-run" },
-  { id: "snakes", label: "Ular Tangga", desc: "Lawan komputer atau 2–4 pemain", icon: "ph-dice-five" },
-  { id: "sudoku", label: "Sudoku", desc: "Mudah, sedang, sulit", icon: "ph-grid-nine" },
-  { id: "minesweeper", label: "Minesweeper", desc: "Temukan semua ranjau", icon: "ph-bomb" },
+  { id: "petualang", label: "Petualangan Rheu", desc: "Platformer: lari, lompat, capai bendera", icon: "ph-flag-pennant", hue: 150, tag: "Aksi" },
+  { id: "invasi", label: "Invasi Galaksi", desc: "Tembak gelombang penyerbu luar angkasa", icon: "ph-rocket", hue: 255, tag: "Arkade" },
+  { id: "kepak", label: "Kepak Sayap", desc: "Ketuk untuk terbang melewati pilar", icon: "ph-bird", hue: 200, tag: "Arkade" },
+  { id: "dino", label: "Dino Lari", desc: "Lari tanpa akhir, lompat ganda", icon: "ph-person-simple-run", hue: 30, tag: "Arkade" },
+  { id: "bata", label: "Pecah Bata", desc: "Pantulkan bola, hancurkan bata", icon: "ph-wall", hue: 340, tag: "Arkade" },
+  { id: "ular", label: "Ular Neon", desc: "Makan, memanjang, jangan tabrak", icon: "ph-infinity", hue: 120, tag: "Klasik" },
+  { id: "snakes", label: "Ular Tangga", desc: "Lawan komputer atau 2–4 pemain", icon: "ph-dice-five", hue: 45, tag: "Papan" },
+  { id: "sudoku", label: "Sudoku", desc: "Mudah, sedang, sulit", icon: "ph-grid-nine", hue: 220, tag: "Teka-teki" },
+  { id: "minesweeper", label: "Minesweeper", desc: "Temukan semua ranjau", icon: "ph-bomb", hue: 0, tag: "Teka-teki" },
 ];
 const state = {
   page: "home", game: null, gameInst: null, newsPage: 1,
   data: {},
-  t: { url: "", status: "idle", stage: 0, data: null, error: null, ytError: false, view: "rapi", started: 0, ms: 0 },
+  t: { url: "", status: "idle", stage: 0, data: null, error: null, ytError: false, view: "rapi", started: 0, ms: 0, lang: store.get("tr-lang", "id") },
   btcTf: "24j", live: null,
   utama: { tab: "nasional", cat: "all" },
-  fin: { tag: "all" },
+  fin: { tag: "all", region: store.get("fin-region", "id") },
+  tek: { tag: "all", region: store.get("tek-region", "id") },
   viral: { region: store.get("viral-region", "id"), platform: "all", cat: "all" },
   radio: { region: store.get("radio-region", "id"), q: "", playing: null, status: "idle" },
-  ask: { q: "", status: "idle", data: null },
+  ask: { q: "", status: "idle", msgs: [] },
+  music: null,
   best: +store.get("silengkap-dino-best", 0) || 0,
 };
 
@@ -134,7 +170,7 @@ function render() {
   const v = $("view");
   if (state.page !== "games" || !state.game) { if (state.gameInst) { state.gameInst.destroy(); state.gameInst = null; } }
   const html = {
-    transcribe: viewTranscribe, finansial: viewFinansial, btc: viewBtc, utama: viewUtama,
+    transcribe: viewTranscribe, finansial: viewFinansial, teknologi: viewTeknologi, musik: viewMusik, btc: viewBtc, utama: viewUtama,
     viral: viewViral, radio: viewRadio,
   }[state.page];
   if (state.page === "games") { if (!state.gameInst) { v.innerHTML = viewGames(); mountGame(); } }
@@ -185,14 +221,18 @@ function viewHome() {
       <span class="card-meta">Diperbarui ${esc(agoText(man.updatedAt))} · ${Object.values(man.stories || {}).reduce((a, b) => a + (b || 0), 0)} cerita · ${man.hoaxClaims || 0} klaim hoaks dipantau</span>
       <i class="ph ph-caret-right" style="margin-left:auto;color:var(--color-neutral-500)"></i></button>` : ""}
     <div class="card elev-md ask-card reveal" style="--i:2">
-      <div style="display:flex;align-items:center;gap:8px"><i class="ph-fill ph-sparkle" style="color:var(--color-accent);font-size:18px"></i><span class="card-kicker">Tanya Rheus</span><span class="card-meta" style="margin-left:auto">dari ${(Cloud.cached("knowledge") || { docs: [] }).docs.length || "—"} info 48 jam terakhir</span></div>
+      <div style="display:flex;align-items:center;gap:8px"><i class="ph-fill ph-sparkle" style="color:var(--color-accent);font-size:18px"></i><span class="card-kicker">Tanya Rheus</span>
+        <span class="card-meta" style="margin-left:auto">${llmUrl() ? "AI · Llama 3.2 3B + internet" : `dari ${(Cloud.cached("knowledge") || { docs: [] }).docs.length || "—"} info 48 jam`}</span>
+        ${a.msgs.length ? `<button class="btn btn-ghost btn-icon" data-action="newChat" aria-label="Percakapan baru"><i class="ph ph-plus-circle"></i></button>` : ""}</div>
+      ${a.msgs.length ? `<div class="chat" id="chatBox">${a.msgs.map((m, i) => m.role === "user"
+        ? `<div class="bubble me">${esc(m.content)}</div>`
+        : `<div class="bubble ai"><div class="ai-text" ${i === a.msgs.length - 1 ? 'id="chatLive"' : ""}>${m.content ? miniMd(m.content) : '<span class="dots"><i></i><i></i><i></i></span>'}${m.streaming && m.content ? '<span class="caret"></span>' : ""}</div>
+            ${(m.sources || []).length ? `<div class="srcs">${m.sources.slice(0, 5).map((x) => `<a href="#" data-read="${esc(x.l)}" data-title="${esc(x.t)}" class="src-chip"><b>${x.n}</b>${esc(x.s)}</a>`).join("")}</div>` : ""}</div>`).join("")}</div>`
+      : `<div class="chips">${["Berita terpenting hari ini?", "Harga bitcoin sekarang?", "Apa yang lagi viral?", "Kabar terbaru soal AI?"].map((q) => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>`}
       <form id="askForm" style="display:flex;gap:8px">
-        <input id="askQ" class="input" style="flex:1;min-width:0" placeholder="Harga bitcoin? Berita viral kuliner?" value="${esc(a.q)}" autocomplete="off">
-        <button class="btn btn-primary btn-icon" type="submit" aria-label="Tanya"><i class="ph ph-paper-plane-tilt"></i></button>
+        <input id="askQ" class="input" style="flex:1;min-width:0" placeholder="Tanya apa saja…" value="${esc(a.q)}" autocomplete="off" ${a.status === "loading" ? "disabled" : ""}>
+        <button class="btn btn-primary btn-icon" type="submit" aria-label="Tanya" ${a.status === "loading" ? "disabled" : ""}><i class="ph ph-paper-plane-tilt"></i></button>
       </form>
-      ${a.status === "loading" ? loadingLine("Rheus mencari…") : ""}
-      ${a.data ? `<p class="answer">${esc(a.data.answer)}</p>
-        ${a.data.sources.length ? `<div style="display:flex;flex-direction:column;gap:6px">${a.data.sources.map((s) => `<a href="#" data-open="${esc(s.l)}" class="src-link">${s.v ? '<i class="ph-fill ph-seal-check" style="color:var(--color-up)"></i>' : '<i class="ph ph-link"></i>'}${esc(s.t)} · ${esc(s.s)}</a>`).join("")}</div>` : ""}` : ""}
     </div>
     <div class="menu-grid">
       ${MENU.map((m, i) => `<button class="menu-tile reveal" data-go="${m.id}" style="--i:${i + 3};--h:${m.hue}">
@@ -220,10 +260,43 @@ function buildBM25(docs) {
 }
 async function ask(q) {
   const a = state.ask;
-  a.q = q;
-  if (!q.trim()) return;
+  q = (q || "").trim();
+  if (!q || a.status === "loading") return;
   haptic();
-  a.status = "loading"; softRender();
+  a.q = "";
+  a.msgs.push({ role: "user", content: q });
+  const msg = { role: "assistant", content: "", sources: [], streaming: true };
+  a.msgs.push(msg);
+  a.status = "loading";
+  softRender(); scrollChat();
+  if (llmUrl()) {
+    let pending = false;
+    try {
+      const history = a.msgs.filter((m) => m !== msg).slice(-7).map((m) => ({ role: m.role, content: m.content }));
+      await streamLLM("/chat", { messages: history }, {
+        onSources: (src) => { msg.sources = src; },
+        onToken: (tok) => {
+          msg.content += tok;
+          if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; const el = $("chatLive"); if (el) { el.innerHTML = miniMd(msg.content) + '<span class="caret"></span>'; scrollChat(); } }); }
+        },
+      });
+      if (!msg.content.trim()) throw new Error("kosong");
+    } catch (e) {
+      // Rheus AI tidak bisa dihubungi: pakai pencarian lokal.
+      const local = await askLocal(q);
+      msg.content = (msg.content ? msg.content + "\n\n" : "") + local.answer;
+      if (!msg.sources.length) msg.sources = local.sources;
+    }
+  } else {
+    const local = await askLocal(q);
+    msg.content = local.answer; msg.sources = local.sources;
+  }
+  msg.streaming = false;
+  a.status = "done";
+  softRender(); scrollChat(); haptic();
+}
+function scrollChat() { const b = $("chatBox"); if (b) b.scrollTop = b.scrollHeight; }
+async function askLocal(q) {
   const parts = [];
   let sources = [];
   try {
@@ -252,8 +325,7 @@ async function ask(q) {
     }
     if (!parts.length) parts.push("Rheus belum menemukan informasi yang cocok dari berita 48 jam terakhir. Coba kata kunci lain.");
   } catch (e) { parts.push(e.message); }
-  Object.assign(a, { status: "done", data: { answer: parts.join(" "), sources } });
-  softRender();
+  return { answer: parts.join(" "), sources: sources.map((d, i) => ({ n: i + 1, t: d.t, s: d.s, l: d.l })) };
 }
 
 // ---------------------------------------------------------------------- transkripsi (di HP)
@@ -283,16 +355,31 @@ function viewTranscribe() {
         <button id="ytGo" class="btn btn-primary" data-action="startTranscribe" ${!t.url.trim() || t.status === "loading" ? "disabled" : ""}><i class="ph-fill ph-lightning"></i>Proses</button>
       </div>
       ${t.ytError ? `<span style="font-size:12px;color:var(--color-accent-300)">Masukkan link YouTube yang valid (youtube.com atau youtu.be).</span>` : ""}
+      <div class="lang-pick" role="radiogroup" aria-label="Bahasa transkrip">
+        <span class="card-meta"><i class="ph ph-translate"></i>Bahasa transkrip</span>
+        <div class="seg">${LANG_OPTS.map(([k, l]) => `<label class="seg-opt ${t.lang === k ? "on" : ""}"><input type="radio" name="tlang" value="${k}">${l}</label>`).join("")}</div>
+      </div>
+      <span class="card-meta lang-hint">${esc(LANG_HINT[t.lang])}</span>
       ${recent.length && t.status !== "loading" ? `<div class="chips">${recent.map((r) => `<button class="chip" data-recent="${esc(r.id)}"><i class="ph ph-clock-counter-clockwise"></i>${esc((r.title || r.id).slice(0, 34))}</button>`).join("")}</div>` : ""}
     </div>
     ${t.status === "loading" ? `
     <div class="card elev-sm stages" style="max-width:760px">
       ${STAGES.slice(0, 3).map((s, i) => `<div class="stage ${i < t.stage ? "done" : i === t.stage ? "now" : ""}"><span class="sdot">${i < t.stage ? '<i class="ph-bold ph-check"></i>' : i + 1}</span>${s}${i === t.stage ? '<i class="ph ph-circle-notch spin" style="margin-left:auto"></i>' : ""}</div>`).join("")}
+      ${t.stageNote ? `<span class="card-meta" style="color:var(--color-accent-300)"><i class="ph ph-cloud-arrow-down"></i>${esc(t.stageNote)}</span>` : ""}
       <span class="card-meta" id="trTimer">0,0 dtk</span>
     </div>` : ""}
     ${t.status === "error" ? errorCard(t.error, "startTranscribe") : ""}
     ${d ? `
-    <div class="done-banner reveal"><i class="ph-fill ph-lightning"></i>Selesai dalam ${(t.ms / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} detik · ${esc(fmtTime(d.duration))} video · ${tb.model ? "model ML aktif" : "mode cadangan"}</div>
+    <div class="done-banner reveal"><i class="ph-fill ph-lightning"></i>Selesai dalam ${(t.ms / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} detik · ${esc(fmtTime(d.duration))} video · ${d.cached ? "dari simpanan HP" : d.via === "rheus-cloud" ? "via Rheus Cloud" : tb.model ? "model ML aktif" : "mode cadangan"}</div>
+    ${!/^(id|in)/.test(d.language || "") ? `<div class="note reveal"><i class="ph ph-info"></i><span>Transkrip ini berbahasa ${esc(langName(d.language))}. Perapian tanda baca dan ringkasan cepat dilatih untuk Bahasa Indonesia, jadi hasilnya kurang rapi untuk bahasa lain.${llmUrl() ? " Gunakan <b>Ringkasan AI</b> di bawah untuk ringkasan berbahasa Indonesia." : ""}</span></div>` : ""}
+    ${llmUrl() ? `<div class="card elev-md ai-card reveal">
+      <div style="display:flex;align-items:center;gap:8px"><i class="ph-fill ph-sparkle" style="color:var(--color-accent);font-size:18px"></i><span class="card-kicker">Ringkasan AI · Rheus</span>
+        ${t.ai && t.ai.status === "done" ? `<button class="btn btn-ghost btn-icon" style="margin-left:auto" data-action="copyAi" aria-label="Salin"><i class="ph ph-copy"></i></button>` : ""}</div>
+      ${!t.ai ? `<p class="card-body">Ringkasan yang ditulis ulang oleh Rheus (Llama 3.2 3B) — lebih luwes dari ringkasan cepat di bawah.</p>
+        <div><button class="btn btn-primary" data-action="aiSummary"><i class="ph-fill ph-sparkle"></i>Buat ringkasan AI</button></div>`
+      : t.ai.status === "error" ? `<p class="card-body">${esc(t.ai.text)}</p><div><button class="btn btn-secondary" data-action="aiSummary"><i class="ph ph-arrows-clockwise"></i>Coba lagi</button></div>`
+      : `<div id="aiSum" class="ai-text">${t.ai.text ? miniMd(t.ai.text) : ""}${t.ai.status === "loading" ? '<span class="caret"></span>' : ""}</div>`}
+    </div>` : ""}
     <div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start">
       <div class="card elev-md reveal" style="gap:12px;--i:1">
         <div style="display:flex;align-items:center;gap:8px"><span class="card-kicker">Ringkasan</span>
@@ -309,7 +396,7 @@ function viewTranscribe() {
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="card-kicker">Transkripsi lengkap</span>
           <div class="seg" style="margin-left:auto"><label class="seg-opt ${t.view === "rapi" ? "on" : ""}"><input type="radio" name="tview" value="rapi">Rapi</label><label class="seg-opt ${t.view === "asli" ? "on" : ""}"><input type="radio" name="tview" value="asli">Asli</label></div>
           <button class="btn btn-ghost btn-icon" data-action="copyTranscript" aria-label="Salin transkrip"><i class="ph ph-copy"></i></button></div>
-        <span class="card-meta">${esc(langLabel(d))} · ${t.view === "rapi" ? "titik, koma & huruf kapital oleh model ML Rheus" : "subtitle asli YouTube"}</span>
+        <span class="card-meta">${esc(langLabel(d))} · ${t.view === "rapi" ? (/^(id|in)/.test(d.language || "") ? "titik, koma & huruf kapital oleh model ML Rheus" : "dirapikan otomatis (paling akurat untuk Bahasa Indonesia)") : "subtitle asli YouTube"}</span>
         <div class="transcript">${paragraphs.map((g) => `<div class="para"><button class="ts-link" data-seek="${Math.floor(g.start)}">${fmtTime(g.start)}</button><span>${esc(g.text)}</span></div>`).join("")}</div>
       </div>
     </div>` : ""}
@@ -321,7 +408,15 @@ function groupSegments(segs) {
   for (const s of segs || []) { if (!cur || s.start - cur.start > 25) { cur = { start: s.start, text: s.text }; out.push(cur); } else cur.text += " " + s.text; }
   return out;
 }
-const langLabel = (d) => (d.source === "terjemahan" ? "Terjemahan ke Indonesia" : d.language === "id" || d.language === "in" ? "Bahasa Indonesia" : `Bahasa ${String(d.language || "").toUpperCase()}`);
+const LANG_OPTS = [["id", "Terjemahkan ke Indonesia"], ["orig", "Bahasa asli"], ["en", "English"]];
+const LANG_HINT = {
+  id: "Video berbahasa lain diterjemahkan otomatis oleh YouTube. Video berbahasa Indonesia tidak diubah.",
+  orig: "Transkrip dipertahankan dalam bahasa yang diucapkan di video, tanpa terjemahan.",
+  en: "Diterjemahkan otomatis ke bahasa Inggris (bila video bukan berbahasa Inggris).",
+};
+const LANG_NAMES = { id: "Indonesia", in: "Indonesia", en: "Inggris", ja: "Jepang", ko: "Korea", zh: "Mandarin", ar: "Arab", es: "Spanyol", fr: "Prancis", de: "Jerman", pt: "Portugis", ru: "Rusia", hi: "Hindi", th: "Thai", ms: "Melayu", tr: "Turki", it: "Italia", nl: "Belanda", vi: "Vietnam" };
+const langName = (c) => LANG_NAMES[String(c || "").slice(0, 2).toLowerCase()] || String(c || "").toUpperCase();
+const langLabel = (d) => (d.source === "terjemahan" ? `Terjemahan otomatis YouTube ke ${langName(d.language)}` : d.source === "otomatis" ? `Bahasa ${langName(d.language)} (subtitle otomatis)` : `Bahasa ${langName(d.language)} (subtitle manual)`);
 let trTimer = null;
 async function startTranscribe(urlArg) {
   const t = state.t;
@@ -329,7 +424,7 @@ async function startTranscribe(urlArg) {
   t.url = url;
   if (!YT_RE.test(url) && !/^[A-Za-z0-9_-]{11}$/.test(url)) { t.ytError = true; softRender(); return; }
   haptic();
-  Object.assign(t, { ytError: false, status: "loading", stage: 0, error: null, data: null, started: performance.now() });
+  Object.assign(t, { ytError: false, status: "loading", stage: 0, error: null, data: null, ai: null, stageNote: "", started: performance.now() });
   softRender();
   clearInterval(trTimer);
   trTimer = setInterval(() => { const el = $("trTimer"); if (el) el.textContent = ((performance.now() - t.started) / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " dtk"; }, 100);
@@ -337,9 +432,25 @@ async function startTranscribe(urlArg) {
   try {
     const modelP = loadModel();
     stage(1);
-    const raw = isApp
-      ? JSON.parse(await withTimeout(Bridge.call("getTranscript", url), 30000, "YouTube tidak merespons dalam 30 detik. Periksa koneksi lalu coba lagi."))
-      : await withTimeout(window.__mockTranscript(url), 30000, "Waktu habis.");
+    let raw;
+    try {
+      raw = isApp
+        ? JSON.parse(await withTimeout(Bridge.call("getTranscript", url, t.lang), 35000, "YouTube tidak merespons dalam 35 detik. Periksa koneksi lalu coba lagi."))
+        : await withTimeout(window.__mockTranscript(url, t.lang), 30000, "Waktu habis.");
+    } catch (e) {
+      // HP kena batas YouTube (429): ambil lewat Rheus Cloud (alamat IP berbeda).
+      if (!String(e.message).startsWith("RATE_LIMIT|")) throw e;
+      const llm = llmUrl();
+      const id = (url.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/) || [])[1] || (/^[A-Za-z0-9_-]{11}$/.test(url) ? url : "");
+      if (!llm || !id) throw new Error(RATE_LIMIT_HELP);
+      t.stageNote = "YouTube membatasi jaringanmu — mengambil lewat Rheus Cloud…";
+      softRender();
+      const r = await withTimeout(fetch(`${llm}/transcript?v=${id}&lang=${encodeURIComponent(t.lang)}`), 25000, RATE_LIMIT_HELP).catch(() => null);
+      const j = r && (await r.json().catch(() => null));
+      if (!j || !j.segments) throw new Error(RATE_LIMIT_HELP);
+      raw = j;
+    }
+    t.stageNote = "";
     stage(2);
     await modelP;
     await new Promise((r) => setTimeout(r, 16)); // beri kesempatan UI menggambar tahap ini
@@ -358,6 +469,74 @@ async function startTranscribe(urlArg) {
   clearInterval(trTimer);
   if (state.page === "transcribe") softRender();
 }
+const RATE_LIMIT_HELP = "YouTube sedang membatasi permintaan dari jaringanmu (kode 429). Ini biasanya terjadi di data seluler karena banyak pengguna berbagi satu alamat IP. Coba: (1) tunggu 1–2 menit, (2) pindah ke Wi-Fi atau sebaliknya, atau (3) nyalakan-matikan mode pesawat agar IP berganti. Video yang sudah pernah ditranskripsi tetap bisa dibuka tanpa internet.";
+function llmUrl() { const m = Cloud.cached("manifest"); return m && m.llm && m.llm.url ? m.llm.url : ""; }
+
+/** Baca aliran SSE dari Rheus LLM (Workers AI): onSources(list), onToken(teks). */
+async function streamLLM(path, body, { onSources, onToken, signal } = {}) {
+  const res = await fetch(llmUrl() + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
+  if (!res.ok || !res.body) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Rheus AI sedang sibuk."); }
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", ev = "message";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, i).replace(/\r$/, ""); buf = buf.slice(i + 1);
+      if (line.startsWith("event:")) ev = line.slice(6).trim();
+      else if (line.startsWith("data:")) {
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(data);
+          if (ev === "sources") onSources && onSources(j);
+          else if (ev === "error") throw new Error(j.message);
+          else {
+            // Workers AI mengirim dua gaya: {response:"…"} (lama) atau gaya OpenAI {choices:[{delta:{content:"…"}}]} (model v2).
+            const c = j.choices && j.choices[0] && j.choices[0].delta;
+            const tok = (c && c.content) || j.response;
+            if (tok) onToken && onToken(tok);
+          }
+        } catch (err) { if (ev === "error") throw err; }
+      } else if (!line) ev = "message";
+    }
+  }
+}
+
+/** Markdown sederhana (tebal, poin, paragraf) → HTML aman. */
+function miniMd(md) {
+  const lines = esc(md).split(/\n/);
+  let html = "", inList = false;
+  for (const raw of lines) {
+    const l = raw.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\[(\d+)\]/g, '<sup class="cite">$1</sup>');
+    if (/^\s*[-*•]\s+/.test(raw)) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${l.replace(/^\s*[-*•]\s+/, "")}</li>`; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    if (raw.trim()) html += `<p>${l}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+async function aiSummary() {
+  const t = state.t, d = t.data;
+  if (!d || !llmUrl() || (t.ai && t.ai.status === "loading")) return;
+  haptic();
+  t.ai = { status: "loading", text: "" };
+  softRender();
+  let pending = false;
+  try {
+    await streamLLM("/summarize", { title: d.title || "", text: d.transcriptbot.clean.text }, {
+      onToken: (tok) => {
+        t.ai.text += tok;
+        if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; const el = $("aiSum"); if (el) el.innerHTML = miniMd(t.ai.text) + '<span class="caret"></span>'; }); }
+      },
+    });
+    t.ai.status = "done";
+  } catch (e) { t.ai = { status: "error", text: e.message }; }
+  if (state.page === "transcribe") softRender();
+}
+
 const summaryText = (d) => [d.title || "Video YouTube", `https://www.youtube.com/watch?v=${d.video_id}`, "", d.transcriptbot.markdown].join("\n");
 
 // ---------------------------------------------------------------------- berita (umum)
@@ -437,28 +616,81 @@ function openArticle(ref, catLabel) {
           ${a.excerpt ? `<p>${esc(a.excerpt)}</p>` : ""}
           <p class="explain"><i class="ph-fill ph-sparkle" style="color:var(--color-accent)"></i> ${esc(a.explain || "")}</p>
           ${a.related.length ? `<p style="margin-bottom:4px"><b style="color:var(--color-text);font-weight:500">Liputan terkait</b></p>
-            <ul style="margin:0;padding-left:18px">${a.related.map((r) => `<li><a href="#" data-open="${esc(r.link)}">${esc(r.title)}</a> <span class="card-meta">${esc(r.source)}</span></li>`).join("")}</ul>` : ""}
+            <ul style="margin:0;padding-left:18px">${a.related.map((r) => `<li><a href="#" data-read="${esc(r.link)}" data-title="${esc(r.title)}">${esc(r.title)}</a> <span class="card-meta">${esc(r.source)}</span></li>`).join("")}</ul>` : ""}
         </div>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-open="${esc(a.link)}"><i class="ph ph-arrow-square-out"></i>Baca di sumber</button>
-          <button class="btn btn-primary" data-action="shareArticle"><i class="ph ph-share-network"></i>Bagikan</button>
+          <button class="btn btn-secondary" data-action="shareArticle"><i class="ph ph-share-network"></i>Bagikan</button>
+          <button class="btn btn-primary" data-read="${esc(a.link)}" data-title="${esc(a.title)}"><i class="ph ph-book-open-text"></i>Baca artikel</button>
         </div>
       </div>
     </div>`;
 }
 
 // ---------------------------------------------------------------------- Berita Finansial
-const FIN_ICON = { saham: "ph-chart-line-up", rupiah: "ph-currency-circle-dollar", kripto: "ph-currency-btc", perbankan: "ph-bank", emas: "ph-coins", makro: "ph-globe" };
-function viewFinansial() {
-  const d = load("finansial");
-  const head = newsHead("Berita Finansial", "Saham, rupiah, kripto, perbankan, dan ekonomi — dari media kredibel.", d, "refresh:finansial");
-  if (!d.data) return `<section class="section">${head}${d.status === "error" ? errorCard(d.error, "refresh:finansial") : skeletonNews() + loadingLine("Mengunduh dari Rheus Cloud…")}</section>`;
-  const f = state.fin, all = d.data.hot.concat(d.data.list);
+const FIN_ICON = { saham: "ph-chart-line-up", rupiah: "ph-currency-circle-dollar", valas: "ph-currency-dollar", kripto: "ph-currency-btc", perbankan: "ph-bank", emas: "ph-coins", makro: "ph-globe" };
+const TEK_ICON = { ai: "ph-brain", gadget: "ph-device-mobile", aplikasi: "ph-app-window", siber: "ph-shield-warning", startup: "ph-rocket-launch", game: "ph-game-controller", sains: "ph-planet" };
+function viewTagged(base, title, sub, icons, st, chipName) {
+  const name = st.region === "us" ? base + "-us" : base;
+  const d = load(name);
+  const us = st.region === "us";
+  const head = newsHead(title, us ? "Media AS (Reuters, CNBC, Bloomberg, dll.) — isi berita berbahasa Inggris." : sub, d, "refresh:" + name);
+  const region = `<div class="seg big" role="radiogroup">${[["id", "🇮🇩 Indonesia"], ["us", "🇺🇸 USA"]].map(([k, l]) => `<label class="seg-opt ${st.region === k ? "on" : ""}"><input type="radio" name="reg-${chipName}" value="${k}">${l}</label>`).join("")}</div>`;
+  if (!d.data) return `<section class="section">${head}${region}${d.status === "error" ? errorCard(d.error, "refresh:" + name) : skeletonNews() + loadingLine("Mengunduh dari Rheus Cloud…")}</section>`;
+  const all = d.data.hot.concat(d.data.list);
   let hot = d.data.hot, list = d.data.list;
-  if (f.tag !== "all") { const x = all.filter((s) => s.tags.includes(f.tag)); hot = x.filter((s) => s.credible).sort((a, b) => b.score - a.score).slice(0, 3); const hs = new Set(hot); list = x.filter((s) => !hs.has(s)).sort((a, b) => b.ts - a.ts); }
-  return `<section class="section">${head}${trustSummary(d.data.stats)}
-    ${chips("fin", [{ id: "all", label: "Semua", count: all.length }, ...d.data.tags.map((t) => ({ id: t.id, label: t.label, icon: FIN_ICON[t.id], count: t.count }))], f.tag)}
+  if (st.tag !== "all") { const x = all.filter((s) => s.tags.includes(st.tag)); hot = x.filter((s) => s.credible).sort((a, b) => b.score - a.score).slice(0, 3); const hs = new Set(hot); list = x.filter((s) => !hs.has(s)).sort((a, b) => b.ts - a.ts); }
+  return `<section class="section">${head}<div style="display:flex;flex-direction:column;gap:12px">${region}${trustSummary(d.data.stats)}
+    ${chips(chipName, [{ id: "all", label: "Semua", count: all.length }, ...d.data.tags.filter((t) => t.count).map((t) => ({ id: t.id, label: t.label, icon: icons[t.id], count: t.count }))], st.tag)}</div>
     ${newsBlocks(hot, list)}</section>`;
+}
+const viewFinansial = () => viewTagged("finansial", "Berita Finansial", "Saham, rupiah, kripto, perbankan, dan ekonomi — dari media kredibel.", FIN_ICON, state.fin, "fin");
+const viewTeknologi = () => viewTagged("teknologi", "Berita Teknologi", "AI, gadget, aplikasi, keamanan siber, startup — ketuk berita untuk Mode Baca bersih.", TEK_ICON, state.tek, "tek");
+
+// ---------------------------------------------------------------------- Musik Online (YouTube Music)
+const MUSIC_LINKS = [
+  { label: "Beranda", desc: "Rekomendasi & mix", icon: "ph-house", url: "https://music.youtube.com/" },
+  { label: "Tangga Lagu", desc: "Top lagu Indonesia & global", icon: "ph-ranking", url: "https://music.youtube.com/charts" },
+  { label: "Jelajahi", desc: "Rilis baru, mood & genre", icon: "ph-compass", url: "https://music.youtube.com/explore" },
+  { label: "Cari lagu", desc: "Judul, artis, lirik", icon: "ph-magnifying-glass", url: "https://music.youtube.com/search" },
+];
+function openMusic(url) {
+  haptic();
+  const target = url || "https://music.youtube.com/";
+  if (isApp && typeof Native.openMusic === "function") {
+    // Radio dijeda agar tidak bertabrakan dengan musik.
+    if (["playing", "loading", "reconnecting"].includes(state.radio.status)) ACTIONS.togglePlay();
+    Native.openMusic(target);
+  } else window.open(target, "_blank", "noopener");
+}
+/** Status pemutar mini (dikirim aplikasi): beri ruang di layout agar panel tidak menutupi konten. */
+Bridge.on("music", ({ mode, h }) => {
+  state.music = mode === "closed" ? null : { mode };
+  document.body.classList.toggle("has-mini", mode === "mini");
+  document.documentElement.style.setProperty("--mini-h", (h || 0) + 16 + "px");
+  if (state.page === "musik") softRender();
+});
+function viewMusik() {
+  return `<section class="section">
+    <div class="page-head"><h2>Musik Online</h2><p class="text-muted">YouTube Music dalam jendela kecil — tetap jalan sementara Anda membaca berita atau bermain gim.</p></div>
+    ${state.music && state.music.mode ? `<div class="card elev-sm reveal mini-status" style="--i:0"><span class="live"><span class="dot"></span>Pemutar mini aktif</span>
+      <span class="card-meta">Tetap tampil saat Anda membuka menu lain.</span>
+      <div style="display:flex;gap:8px;margin-left:auto"><button class="btn btn-secondary" data-action="musicFull"><i class="ph ph-arrows-out-simple"></i>${state.music.mode === "full" ? "Kecilkan" : "Perbesar"}</button>
+      <button class="btn btn-ghost" data-action="musicClose"><i class="ph ph-x"></i>Tutup</button></div></div>` : ""}
+    <button class="card music-hero reveal" data-music="https://music.youtube.com/">
+      <span class="music-disc"><i class="ph-fill ph-play"></i></span>
+      <span style="display:flex;flex-direction:column;gap:4px;text-align:left"><span style="font-size:20px;font-weight:600">Buka YouTube Music</span>
+      <span class="text-muted" style="font-size:13px">Buka pemutar mini di bagian bawah layar</span></span>
+      <i class="ph ph-caret-right" style="margin-left:auto;font-size:20px"></i>
+    </button>
+    <div class="grid-auto" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,160px),1fr))">
+      ${MUSIC_LINKS.slice(1).map((m, i) => `<button class="card game-card reveal" data-music="${esc(m.url)}" style="--i:${i + 1};min-height:110px"><i class="ph ${m.icon}"></i><span class="card-title" style="font-size:15px">${esc(m.label)}</span><span class="card-meta">${esc(m.desc)}</span></button>`).join("")}
+    </div>
+    <div class="card elev-sm reveal" style="gap:8px;--i:4">
+      <span class="card-kicker">Perlu diketahui</span>
+      <p class="card-body"><b>Masuk akun:</b> ketuk "Masuk akun" di atas halaman YouTube Music (dibuka lewat Chrome, karena Google tidak mengizinkan login di dalam aplikasi lain).</p>
+      <p class="card-body"><b>Pemutar mini</b> tetap berbunyi selama SiLengkap terlihat di layar. <b>Putar di latar belakang</b> (aplikasi ditutup atau layar mati) adalah fitur YouTube Premium, jadi musik dijeda saat itu. Mau musik gratis yang tetap jalan saat layar mati? Pakai menu <a href="#/radio">Radio</a>.</p>
+    </div>
+  </section>`;
 }
 
 // ---------------------------------------------------------------------- Berita Utama
@@ -598,12 +830,33 @@ function viewBtc() {
 }
 
 // ---------------------------------------------------------------------- radio
+// Di APK radio diputar oleh RadioService (ExoPlayer, latar belakang, sambung ulang otomatis).
+// Pemutar <audio> hanya cadangan untuk pengembangan di browser.
+const NATIVE_RADIO = isApp && typeof window.Native.radioPlay === "function";
 const audio = new Audio();
 audio.preload = "none";
-audio.addEventListener("playing", () => { state.radio.status = "playing"; renderPlayer(); });
-audio.addEventListener("waiting", () => { state.radio.status = "loading"; renderPlayer(); });
-audio.addEventListener("pause", () => { if (state.radio.status !== "error") state.radio.status = "paused"; renderPlayer(); });
-audio.addEventListener("error", () => { if (state.radio.playing && audio.getAttribute("src")) { state.radio.status = "error"; renderPlayer(); toast("Stasiun tidak bisa diputar. Coba stasiun lain."); } });
+if (!NATIVE_RADIO) {
+  audio.addEventListener("playing", () => radioEvent({ state: "playing" }));
+  audio.addEventListener("waiting", () => radioEvent({ state: "loading" }));
+  audio.addEventListener("pause", () => { if (state.radio.status !== "error") radioEvent({ state: "paused" }); });
+  audio.addEventListener("error", () => { if (state.radio.playing && audio.getAttribute("src")) radioEvent({ state: "error", message: "Stasiun tidak bisa diputar. Coba stasiun lain." }); });
+}
+function radioEvent(e) {
+  const r = state.radio;
+  const wasPlaying = r.status === "playing";
+  if (e.state === "idle") { if (r.playing && r.status !== "loading") { r.playing = null; r.status = "idle"; softRender(); } return; }
+  if (!r.playing && e.id) {
+    // Aplikasi dibuka lagi saat radio masih berbunyi: pulihkan stasiun dari data tersimpan.
+    const all = ["id", "us"].flatMap((g) => ((Cloud.cached("radio-" + g) || {}).stations || []));
+    r.playing = all.find((x) => x.id === e.id) || JSON.parse(store.get("radio-last", "null"));
+  }
+  if (!r.playing) return;
+  if (e.state === "error" && r.status !== "error" && e.message) toast(e.message);
+  if (e.state === "reconnecting" && r.status !== "reconnecting") haptic();
+  Object.assign(r, { status: e.state, nowPlaying: e.nowPlaying || "", attempt: e.attempt || 0, message: e.message || "" });
+  if ((r.status === "playing") !== wasPlaying && state.page === "radio") softRender(); else renderPlayer();
+}
+Bridge.on("radio", radioEvent);
 function viewRadio() {
   const r = state.radio;
   const d = load("radio-" + r.region);
@@ -632,35 +885,53 @@ function playStation(id) {
   if (!s) return;
   haptic();
   const r = state.radio;
-  if (r.playing && r.playing.id === id && r.status === "playing") { audio.pause(); return; }
-  r.playing = s; r.status = "loading";
-  audio.src = s.url;
-  audio.play().catch(() => { r.status = "error"; renderPlayer(); });
-  if ("mediaSession" in navigator && window.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: s.name, artist: "SiLengkap Radio" });
+  if (r.playing && r.playing.id === id && (r.status === "playing" || r.status === "loading" || r.status === "reconnecting")) { ACTIONS.togglePlay(); return; }
+  Object.assign(r, { playing: s, status: "loading", nowPlaying: "", attempt: 0, message: "" });
+  store.set("radio-last", JSON.stringify(s));
+  if (NATIVE_RADIO) {
+    Native.radioPlay(JSON.stringify({ id: s.id, name: s.name, urls: s.urls && s.urls.length ? s.urls : [s.url], favicon: s.favicon, hls: !!s.hls }));
+  } else {
+    audio.src = s.url;
+    audio.play().catch(() => radioEvent({ state: "error", message: "Stasiun tidak bisa diputar. Coba stasiun lain." }));
+  }
   softRender();
 }
 function renderPlayer() {
   const r = state.radio, el = $("player");
   if (!r.playing) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
-  const st = { playing: "Sedang diputar", loading: "Menyambungkan…", paused: "Dijeda", error: "Gagal memutar" }[r.status] || "";
-  el.innerHTML = `${r.status === "playing" ? '<span class="eq"><i></i><i></i><i></i></span>' : '<i class="ph ph-radio" style="font-size:22px;color:var(--color-accent)"></i>'}
-    <div style="min-width:0;flex:1"><div class="ellipsis" style="font-size:14px;font-weight:500">${esc(r.playing.name)}</div><div class="card-meta">${st}</div></div>
-    <button class="btn btn-primary btn-icon" data-action="togglePlay"><i class="ph-fill ${r.status === "playing" ? "ph-pause" : r.status === "loading" ? "ph-circle-notch spin" : "ph-play"}"></i></button>
+  const busy = r.status === "loading" || r.status === "reconnecting";
+  const st = {
+    playing: r.nowPlaying ? `♪ ${r.nowPlaying}` : "Sedang diputar",
+    loading: "Menyambungkan…",
+    reconnecting: `Sinyal putus — menyambung ulang${r.attempt > 1 ? ` (percobaan ${r.attempt})` : ""}…`,
+    paused: "Dijeda",
+    error: r.message || "Gagal memutar",
+  }[r.status] || "";
+  el.innerHTML = `${r.status === "playing" ? '<span class="eq"><i></i><i></i><i></i></span>' : `<i class="ph ${r.status === "reconnecting" ? "ph-wifi-low" : r.status === "error" ? "ph-warning" : "ph-radio"}" style="font-size:22px;color:var(--color-accent)"></i>`}
+    <div style="min-width:0;flex:1"><div class="ellipsis" style="font-size:14px;font-weight:500">${esc(r.playing.name)}</div><div class="card-meta ellipsis" style="display:block">${esc(st)}</div></div>
+    <button class="btn btn-primary btn-icon" data-action="togglePlay" aria-label="Putar/jeda"><i class="ph-fill ${r.status === "playing" ? "ph-pause" : busy ? "ph-circle-notch spin" : "ph-play"}"></i></button>
     <button class="btn btn-ghost btn-icon" data-action="stopRadio" aria-label="Berhenti"><i class="ph ph-x"></i></button>`;
 }
 
 // ---------------------------------------------------------------------- gim (offline)
 function viewGames() {
   const g = GAMES.find((x) => x.id === state.game);
+  const best = (id) => +store.get("sl-best-" + id, 0) || 0;
   if (!g) {
-    return `<section class="section"><div class="page-head"><h2>Gim</h2><p class="text-muted">Semua gim bisa dimainkan tanpa internet.</p></div>
-      <div class="grid-auto" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))">
-        ${GAMES.map((x, i) => `<button class="card game-card reveal" data-game="${x.id}" style="--i:${i}"><i class="ph ${x.icon}"></i><span class="card-title">${esc(x.label)}</span><span class="card-meta">${esc(x.desc)}</span></button>`).join("")}
+    const muted = !Settings.sfx && !Settings.music;
+    return `<section class="section"><div class="head-row page-head"><div style="margin-right:auto"><h2>Gim</h2><p class="text-muted">9 gim, semuanya bisa dimainkan tanpa internet.</p></div>
+      <button class="btn btn-secondary" data-action="toggleSound"><i class="ph-fill ${muted ? "ph-speaker-slash" : "ph-speaker-high"}"></i>${muted ? "Suara mati" : "Suara nyala"}</button></div>
+      <div class="game-grid">
+        ${GAMES.map((x, i) => `<button class="game-tile reveal" data-game="${x.id}" style="--i:${i};--h:${x.hue}">
+          <span class="game-art"><i class="ph-fill ${x.icon}"></i></span>
+          <span class="tag tag-neutral game-tag">${esc(x.tag)}</span>
+          <span class="mt-label">${esc(x.label)}</span><span class="mt-desc">${esc(x.desc)}</span>
+          ${best(x.id) ? `<span class="card-meta"><i class="ph-fill ph-trophy" style="color:#ffd166"></i>Rekor ${best(x.id)}</span>` : ""}</button>`).join("")}
       </div></section>`;
   }
-  return `<section class="section" style="gap:14px"><div class="head-row"><button class="btn btn-secondary btn-icon" data-go="games" aria-label="Kembali"><i class="ph ph-caret-left"></i></button>
-    <h2 style="margin:0;margin-right:auto">${esc(g.label)}</h2></div><div id="gameRoot"></div></section>`;
+  return `<section class="section" style="gap:12px"><div class="head-row" style="align-items:center"><button class="btn btn-secondary btn-icon" data-go="games" aria-label="Kembali"><i class="ph ph-caret-left"></i></button>
+    <h2 style="margin:0;margin-right:auto;font-size:22px">${esc(g.label)}</h2></div><div id="gameRoot"></div></section>`;
 }
 function mountGame() {
   const root = $("gameRoot");
@@ -690,23 +961,59 @@ async function openStatus() {
     </div></div>`;
 }
 
+function openSettings() {
+  haptic();
+  const row = (k, title, sub) => `<label class="set-row"><span class="lbl"><span style="font-size:15px;font-weight:500">${title}</span><span class="card-meta">${sub}</span></span>
+    <span class="switch"><input type="checkbox" data-setting="${k}" ${Settings[k] ? "checked" : ""}><span></span></span></label>`;
+  $("dialog").innerHTML = `
+    <div class="dialog-backdrop" style="z-index:50" data-action="closeArticle"><div class="dialog sheet" data-stop>
+      <div class="grab"></div>
+      <div class="dialog-title" style="font-size:20px">Pengaturan</div>
+      <div style="display:flex;flex-direction:column;gap:8px"><span class="card-kicker">Tema</span>
+        <div class="seg big" role="radiogroup">${[["auto", "Otomatis", "ph-circle-half"], ["dark", "Gelap", "ph-moon"], ["light", "Terang", "ph-sun"]].map(([k, l, ic]) =>
+          `<label class="seg-opt ${Settings.theme === k ? "on" : ""}"><input type="radio" name="theme" value="${k}"><i class="ph ${ic}"></i> ${l}</label>`).join("")}</div></div>
+      <div>${row("sfx", "Efek suara gim", "Suara lompat, tembak, koin, dll.")}${row("music", "Musik latar gim", "Musik chiptune saat bermain")}${row("haptic", "Getaran", "Getar halus saat menekan tombol")}</div>
+      <div class="dialog-actions"><button class="btn btn-primary" data-action="closeArticle">Selesai</button></div>
+    </div></div>`;
+}
+
 // ====================================================================== event
 const ACTIONS = {
   openMenu: () => setMenu(true), closeMenu: () => setMenu(false),
   startTranscribe: () => startTranscribe(),
   copyTranscript: () => { const d = state.t.data; if (d) Platform.copy(state.t.view === "rapi" ? d.transcriptbot.clean.paragraphs.map((p) => `[${fmtTime(p.start)}] ${p.text}`).join("\n\n") : d.segments.map((s) => `[${fmtTime(s.start)}] ${s.text}`).join("\n")); },
+  aiSummary: () => aiSummary(),
+  newChat: () => { if (state.ask.status !== "loading") { state.ask.msgs = []; softRender(); } },
+  copyAi: () => state.t.ai && Platform.copy(state.t.ai.text),
   copySummary: () => state.t.data && Platform.copy(summaryText(state.t.data)),
   shareSummary: () => state.t.data && Platform.share(state.t.data.title || "Ringkasan video", summaryText(state.t.data)),
   closeArticle: () => { $("dialog").innerHTML = ""; state.article = null; },
   shareArticle: () => { const a = state.article; if (a) Platform.share(a.title, `${a.title}\n${a.link}`); },
   openStatus,
-  togglePlay: () => { haptic(); if (state.radio.status === "playing") audio.pause(); else { state.radio.status = "loading"; audio.play().catch(() => {}); renderPlayer(); } },
-  stopRadio: () => { audio.pause(); audio.removeAttribute("src"); audio.load(); state.radio.playing = null; softRender(); },
+  openSettings,
+  toggleSound: () => { const on = !Settings.sfx && !Settings.music; Settings.set("sfx", on); Settings.set("music", on); if (window.SLAudio) { SLAudio.refresh(); if (on) SLAudio.sfx("coin"); } softRender(); },
+  musicFull: () => { if (isApp && Native.musicMode) Native.musicMode(state.music && state.music.mode === "full" ? "mini" : "full"); },
+  musicClose: () => { if (isApp && Native.musicMode) Native.musicMode("close"); },
+  toggleTheme: () => { const light = document.documentElement.dataset.theme === "light"; Settings.set("theme", light ? "dark" : "light"); haptic(); },
+  togglePlay: () => {
+    haptic();
+    const r = state.radio;
+    const on = r.status === "playing" || r.status === "loading" || r.status === "reconnecting";
+    if (NATIVE_RADIO) { if (on) Native.radioPause(); else { r.status = "loading"; Native.radioResume(); } }
+    else if (on) audio.pause(); else { r.status = "loading"; audio.play().catch(() => {}); }
+    renderPlayer();
+  },
+  stopRadio: () => {
+    if (NATIVE_RADIO) Native.radioStop(); else { audio.pause(); audio.removeAttribute("src"); audio.load(); }
+    Object.assign(state.radio, { playing: null, status: "idle" }); softRender();
+  },
 };
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-go],[data-action],[data-article],[data-page],[data-seek],[data-open],[data-stop],[data-chip],[data-station],[data-game],[data-recent]");
+  const el = e.target.closest("[data-go],[data-action],[data-article],[data-page],[data-seek],[data-open],[data-read],[data-music],[data-stop],[data-chip],[data-station],[data-game],[data-recent]");
   if (!el) return;
-  if (el.hasAttribute("data-stop") && !e.target.closest("[data-action],[data-open]")) return;
+  if (el.hasAttribute("data-stop") && !e.target.closest("[data-action],[data-open],[data-read]")) return;
+  if (el.dataset.read !== undefined) { e.preventDefault(); haptic(); Platform.read(el.dataset.read, el.dataset.title); return; }
+  if (el.dataset.music !== undefined) { e.preventDefault(); openMusic(el.dataset.music); return; }
   if (el.dataset.go) { setMenu(false); go(el.dataset.go); return; }
   if (el.dataset.open !== undefined) { e.preventDefault(); Platform.open(el.dataset.open); return; }
   const act = el.dataset.action;
@@ -716,12 +1023,12 @@ document.addEventListener("click", (e) => {
     if (ACTIONS[act]) ACTIONS[act]();
     return;
   }
-  if (el.dataset.article) { openArticle(el.dataset.article, { finansial: "Finansial", utama: state.utama.tab === "nasional" ? "Nasional" : "Internasional", viral: "Viral" }[state.page] || ""); return; }
+  if (el.dataset.article) { openArticle(el.dataset.article, { finansial: "Finansial", teknologi: "Teknologi", utama: state.utama.tab === "nasional" ? "Nasional" : "Internasional", viral: "Viral" }[state.page] || ""); return; }
   if (el.dataset.page) { haptic(); state.newsPage = +el.dataset.page; softRender(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   if (el.dataset.chip) {
     haptic();
     const v = el.dataset.val;
-    ({ ucat: () => (state.utama.cat = v), fin: () => (state.fin.tag = v), vplat: () => (state.viral.platform = v), vcat: () => (state.viral.cat = v) })[el.dataset.chip]();
+    ({ ucat: () => (state.utama.cat = v), fin: () => (state.fin.tag = v), tek: () => (state.tek.tag = v), vplat: () => (state.viral.platform = v), vcat: () => (state.viral.cat = v) })[el.dataset.chip]();
     state.newsPage = 1; softRender(); return;
   }
   if (el.dataset.station) { playStation(el.dataset.station); return; }
@@ -737,13 +1044,21 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const n = e.target.name, v = e.target.value;
   haptic();
+  if (n === "theme") { Settings.set("theme", v); document.querySelectorAll('input[name="theme"]').forEach((i) => i.parentElement.classList.toggle("on", i.value === v)); }
+  if (e.target.dataset.setting) { Settings.set(e.target.dataset.setting, e.target.checked); if (window.SLAudio) SLAudio.refresh(); }
   if (n === "tf") { state.btcTf = v; softRender(); }
+  if (n === "tlang") {
+    state.t.lang = v; store.set("tr-lang", v);
+    if (state.t.url.trim() && state.t.status !== "loading" && (state.t.data || state.t.status === "error")) startTranscribe(); else softRender();
+  }
   if (n === "tview") { state.t.view = v; softRender(); }
   if (n === "utab") { state.utama.tab = v; state.utama.cat = "all"; state.newsPage = 1; softRender(); }
+  if (n === "reg-fin" || n === "reg-tek") { const k = n === "reg-fin" ? "fin" : "tek"; state[k].region = v; state[k].tag = "all"; store.set(k + "-region", v); state.newsPage = 1; softRender(); }
   if (n === "vregion") { state.viral = { region: v, platform: "all", cat: "all" }; store.set("viral-region", v); state.newsPage = 1; softRender(); }
   if (n === "rregion") { state.radio.region = v; store.set("radio-region", v); softRender(); }
 });
 document.addEventListener("submit", (e) => { if (e.target.id === "askForm") { e.preventDefault(); ask($("askQ").value); } });
+document.addEventListener("click", (e) => { const c = e.target.closest("[data-ask]"); if (c) ask(c.dataset.ask); });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { setMenu(false); ACTIONS.closeArticle(); }
   if (e.key === "Enter" && e.target.id === "yt") startTranscribe();
@@ -766,6 +1081,7 @@ Bridge.on("share", ({ text }) => {
   const h = parseHash();
   state.page = h.page; state.game = h.page === "games" ? h.sub : null;
   render();
+  if (NATIVE_RADIO && typeof Native.radioSync === "function") Native.radioSync();
   // Siapkan data di latar belakang: manifest + berita utama, agar menu terasa instan.
   Cloud.get("manifest").then((m) => { Cloud.manifest = m; if (state.page === "home") softRender(); }).catch(() => {});
   setTimeout(() => { ["knowledge", "utama"].forEach((n) => Cloud.get(n).then(() => { if (state.page === "home" && n === "knowledge") softRender(); }).catch(() => {})); loadModel(); }, 400);

@@ -7,6 +7,8 @@
   const COLORS = ["#9184d9", "#7fd1a8", "#f0b86e", "#f08b8b"];
   const NAMES = ["Kamu", "Komputer", "Pemain 3", "Pemain 4"];
 
+  const sfx = (n) => root.SLAudio && root.SLAudio.sfx(n);
+
   function cellXY(n) {
     // Petak 1 di kiri bawah, berkelok (boustrophedon).
     const r = Math.floor((n - 1) / 10), c = (n - 1) % 10;
@@ -23,6 +25,7 @@
       const count = mode === "cpu" ? 2 : +mode;
       players = Array.from({ length: count }, (_, i) => ({ name: mode === "cpu" ? NAMES[i] : `Pemain ${i + 1}`, pos: 0, color: COLORS[i], cpu: mode === "cpu" && i === 1 }));
       turn = 0; dice = null; winner = null; log = ["Permainan dimulai. Lempar dadu!"];
+      root.SLAudio && root.SLAudio.music("chill");
       draw();
     }
 
@@ -76,7 +79,7 @@
               <span style="width:14px;height:14px;border-radius:50%;background:${pl.color}"></span>${esc(pl.name)}
               <span class="card-meta" style="margin-left:auto">petak ${pl.pos || "start"}</span></div>`).join("")}
             <div style="display:flex;align-items:center;gap:14px">
-              <div style="width:64px;height:64px;border-radius:14px;background:var(--color-neutral-900);display:grid;place-items:center;font-size:30px;font-weight:600;box-shadow:inset 0 0 0 1px var(--color-border)">${dice ?? "–"}</div>
+              <div class="dice ${busy ? "rolling" : ""}">${dice ?? "–"}</div>
               ${winner ? `<button class="btn btn-primary" data-sl="new"><i class="ph ph-arrow-counter-clockwise"></i>Main lagi</button>`
                 : `<button class="btn btn-primary" data-sl="roll" ${busy || p.cpu ? "disabled" : ""}><i class="ph ph-dice-five"></i>${p.cpu ? "Komputer melempar…" : "Lempar dadu"}</button>`}
             </div>
@@ -91,6 +94,7 @@
         const t = setInterval(() => {
           if (p.pos === to) { clearInterval(t); res(); return; }
           p.pos += p.pos < to ? 1 : -1;
+          sfx("step");
           draw();
         }, 110);
       });
@@ -100,7 +104,9 @@
       if (busy || winner) return;
       busy = true;
       const p = players[turn];
-      dice = 1 + Math.floor(Math.random() * 6);
+      // animasi dadu berputar
+      sfx("dice");
+      for (let i = 0; i < 6; i++) { dice = 1 + Math.floor(Math.random() * 6); draw(); await new Promise((r) => setTimeout(r, 70)); }
       draw();
       const target = p.pos + dice;
       if (target > 100) {
@@ -108,10 +114,10 @@
       } else {
         await step(p, target);
         let msg = `${p.name} dapat ${dice} → petak ${target}.`;
-        if (LADDERS[target]) { p.pos = LADDERS[target]; msg += ` Naik tangga ke ${p.pos}!`; }
-        else if (SNAKES[target]) { p.pos = SNAKES[target]; msg += ` Digigit ular, turun ke ${p.pos}.`; }
+        if (LADDERS[target]) { sfx("ladder"); await new Promise((r) => setTimeout(r, 250)); p.pos = LADDERS[target]; msg += ` Naik tangga ke ${p.pos}!`; }
+        else if (SNAKES[target]) { sfx("snake"); await new Promise((r) => setTimeout(r, 350)); p.pos = SNAKES[target]; msg += ` Digigit ular, turun ke ${p.pos}.`; }
         log.push(msg);
-        if (p.pos === 100) winner = p;
+        if (p.pos === 100) { winner = p; sfx(p.cpu ? "lose" : "win"); root.SLAudio && root.SLAudio.stopMusic(); }
       }
       if (!winner && dice !== 6) turn = (turn + 1) % players.length;
       else if (!winner) log.push(log.pop() + " Dapat 6, lempar lagi!");
@@ -128,7 +134,7 @@
     });
     el.addEventListener("change", (e) => { if (e.target.name === "slmode") newGame(e.target.value); });
     newGame("cpu");
-    return { destroy() { el.innerHTML = ""; } };
+    return { destroy() { winner = winner || {}; root.SLAudio && root.SLAudio.stopMusic(); el.innerHTML = ""; } };
   }
 
   root.SLGames = root.SLGames || {};

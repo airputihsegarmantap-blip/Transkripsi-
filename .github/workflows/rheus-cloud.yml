@@ -54,6 +54,25 @@ jobs:
             rm -f ../data/v2/heldout.json
           fi
 
+      - name: Cari alamat Rheus LLM (bila sudah dideploy)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RHEUS_LLM_URL: ${{ vars.RHEUS_LLM_URL }}
+        run: |
+          url="$RHEUS_LLM_URL"
+          if [ -z "$url" ] && [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            sub=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+              | python3 -c "import json,sys;print((json.load(sys.stdin).get('result') or {}).get('subdomain') or '')" || true)
+            [ -n "$sub" ] && url="https://rheus-llm.$sub.workers.dev"
+          fi
+          if [ -n "$url" ] && curl -sf "$url/health" > /dev/null; then
+            echo "RHEUS_LLM_URL=$url" >> "$GITHUB_ENV"; echo "Rheus LLM aktif: $url"
+          else
+            echo "Rheus LLM belum aktif — aplikasi memakai Tanya Rheus versi pencarian."
+          fi
+
       - name: Kumpulkan & olah data
         working-directory: rheus
         run: python -m rheus.cloud --out ../data/v2
@@ -76,6 +95,6 @@ jobs:
 
       - name: Kosongkan cache CDN
         run: |
-          for f in manifest utama finansial viral-id viral-us btc-24j btc-7h btc-30h radio-id radio-us knowledge model/meta model/case; do
+          for f in manifest utama finansial teknologi finansial-us teknologi-us viral-id viral-us btc-24j btc-7h btc-30h radio-id radio-us knowledge model/meta model/case; do
             curl -s -o /dev/null -w "%{http_code} $f\n" "https://purge.jsdelivr.net/gh/${{ github.repository }}@rheus-data/v2/$f.json" || true
           done

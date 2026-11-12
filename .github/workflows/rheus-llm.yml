@@ -1,0 +1,91 @@
+name: Rheus LLM (deploy ke Cloudflare Workers AI)
+
+# Rheus LLM = Llama 3.2 3B Instruct di Cloudflare Workers AI (paket gratis) + konteks internet.
+# Butuh dua secret repo (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  — token dengan izin "Workers Scripts: Edit" & "Workers AI: Read"
+#   CLOUDFLARE_ACCOUNT_ID — Account ID Cloudflare
+# Tanpa secret, workflow ini dilewati dan aplikasi memakai Tanya Rheus versi pencarian (di HP).
+
+on:
+  push:
+    paths:
+      - "cloud/rheus-llm/**"
+      - ".github/workflows/rheus-llm.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Uji worker (tanpa Cloudflare)
+        run: node eval/worker_test.mjs
+
+      - name: Periksa token & Account ID Cloudflare
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then exit 0; fi
+          if ! echo "$CLOUDFLARE_ACCOUNT_ID" | grep -Eq '^[0-9a-f]{32}$'; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID bukan Account ID yang valid (harus 32 karakter huruf a-f/angka, tanpa spasi)."
+            exit 1
+          fi
+          api() { curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/$1"; }
+          ok() { python3 -c "import json,sys;d=json.load(sys.stdin);print('OK' if d.get('success') else 'GAGAL: '+'; '.join(e.get('message','?') for e in d.get('errors',[])));sys.exit(0 if d.get('success') else 1)"; }
+          echo -n "1. Token valid & aktif ........ "
+          if api user/tokens/verify | ok > /tmp/v1 2>&1; then cat /tmp/v1
+          elif api "accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | ok > /tmp/v2 2>&1; then cat /tmp/v2
+          else echo "GAGAL (token salah salin, kedaluwarsa, atau bukan token API)"; fi
+          echo -n "2. Boleh mengelola Worker ..... "
+          if api "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" | ok; then :; else
+            echo "::error::Token tidak punya izin 'Workers Scripts: Edit' untuk akun ini. Buat ulang token dari template 'Edit Cloudflare Workers' dan pada 'Account Resources' pilih akun Anda (Include -> akun Anda). Pastikan Account ID juga dari akun yang sama."
+            exit 1
+          fi
+          echo -n "3. Subdomain workers.dev ...... "
+          api "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | python3 -c "import json,sys;d=json.load(sys.stdin);s=(d.get('result') or {}).get('subdomain');print(s+'.workers.dev' if s else 'BELUM ADA -> buka Workers & Pages di dashboard Cloudflare sekali lalu buat subdomain')"
+
+      - name: Deploy ke Cloudflare
+        working-directory: cloud/rheus-llm
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Secret Cloudflare belum diisi — deploy Rheus LLM dilewati (lihat README)."
+            exit 0
+          fi
+          npx --yes wrangler@3.90.0 deploy \
+            --var KNOWLEDGE_URL:https://raw.githubusercontent.com/${{ github.repository }}/rheus-data/v2/knowledge.json
+
+      - name: Cek Rheus LLM
+        run: |
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && exit 0
+          sub=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['subdomain'])")
+          url="https://rheus-llm.$sub.workers.dev"
+          echo "Rheus LLM: $url"
+          sleep 5
+          curl -s "$url/health"; echo
+          curl -sN -m 90 -X POST "$url/chat" -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Apa berita utama hari ini?"}]}' > /tmp/chat.sse || true
+          python3 - <<'PY'
+          import json
+          ev = None; txt = ""; src = []; chunks = 0; style = set()
+          for line in open("/tmp/chat.sse", encoding="utf-8", errors="replace"):
+              line = line.strip()
+              if line.startswith("event:"): ev = line[6:].strip()
+              elif line.startswith("data:"):
+                  d = line[5:].strip()
+                  if d == "[DONE]": continue
+                  try: j = json.loads(d)
+                  except Exception: continue
+                  if ev == "sources": src = j; ev = None; continue
+                  chunks += 1
+                  c = ((j.get("choices") or [{}])[0].get("delta") or {}).get("content")
+                  if c: txt += c; style.add("delta.content")
+                  elif j.get("response"): txt += j["response"]; style.add("response")
+          print("sumber:", len(src), "| potongan:", chunks, "| format:", sorted(style))
+          print("JAWABAN:", txt[:900] or "(KOSONG!)")
+          PY

@@ -1,0 +1,13 @@
+# Rheus LLM — Cloudflare Worker (paket gratis Workers + Workers AI).
+# Dideploy otomatis oleh .github/workflows/rheus-llm.yml bila secret CLOUDFLARE_API_TOKEN & CLOUDFLARE_ACCOUNT_ID ada.
+name = "rheus-llm"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+[vars]
+# Diganti otomatis saat deploy (--var) agar mengikuti repo yang menjalankan workflow.
+KNOWLEDGE_URL = "https://raw.githubusercontent.com/airputihsegarmantap-blip/Transkripsi-/rheus-data/v2/knowledge.json"
