@@ -1,0 +1,51 @@
+name: Rheus LLM (deploy ke Cloudflare Workers AI)
+
+# Rheus LLM = Llama 3.2 3B Instruct di Cloudflare Workers AI (paket gratis) + konteks internet.
+# Butuh dua secret repo (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  — token dengan izin "Workers Scripts: Edit" & "Workers AI: Read"
+#   CLOUDFLARE_ACCOUNT_ID — Account ID Cloudflare
+# Tanpa secret, workflow ini dilewati dan aplikasi memakai Tanya Rheus versi pencarian (di HP).
+
+on:
+  push:
+    paths:
+      - "cloud/rheus-llm/**"
+      - ".github/workflows/rheus-llm.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Uji worker (tanpa Cloudflare)
+        run: node eval/worker_test.mjs
+
+      - name: Deploy ke Cloudflare
+        working-directory: cloud/rheus-llm
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Secret Cloudflare belum diisi — deploy Rheus LLM dilewati (lihat README)."
+            exit 0
+          fi
+          npx --yes wrangler@3.90.0 deploy \
+            --var KNOWLEDGE_URL:https://raw.githubusercontent.com/${{ github.repository }}/rheus-data/v2/knowledge.json
+
+      - name: Cek Rheus LLM
+        run: |
+          [ -z "$CLOUDFLARE_API_TOKEN" ] && exit 0
+          sub=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['subdomain'])")
+          url="https://rheus-llm.$sub.workers.dev"
+          echo "Rheus LLM: $url"
+          sleep 5
+          curl -s "$url/health"; echo
+          curl -sN -X POST "$url/chat" -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Apa berita utama hari ini?"}]}' | head -c 1500; echo

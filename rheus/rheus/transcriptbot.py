@@ -19,7 +19,7 @@ import numpy as np
 
 from .learn import Brain
 
-VERSION = "3.0"
+VERSION = "4.0"
 
 # ------------------------------------------------------------------ kamus
 STOPWORDS = set("""

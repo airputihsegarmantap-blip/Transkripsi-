@@ -65,6 +65,26 @@ FINANSIAL_TAGS = {
 FINANSIAL_TAG_LABEL = {"saham": "Saham", "rupiah": "Rupiah & Valas", "kripto": "Kripto", "perbankan": "Perbankan",
                        "emas": "Emas & Komoditas", "makro": "Ekonomi Makro"}
 
+# ---------------------------------------------------------------- Berita Teknologi
+TEKNOLOGI = [
+    {"url": gn_topic("TECHNOLOGY"), "name": "Google Berita"},
+    {"url": gn_search("teknologi OR gadget OR smartphone OR aplikasi when:1d"), "name": "Google Berita"},
+    {"url": gn_search("\"kecerdasan buatan\" OR AI OR startup OR siber when:1d"), "name": "Google Berita"},
+    {"url": "https://inet.detik.com/rss", "name": "detikInet"},
+    {"url": "https://tekno.kompas.com/rss", "name": "Kompas Tekno"},
+]
+TEKNOLOGI_TAGS = {
+    "ai": "ai kecerdasan buatan chatgpt openai gemini claude llm robot machine learning deepseek",
+    "gadget": "smartphone hp ponsel iphone samsung xiaomi oppo vivo laptop tablet gadget kamera chip snapdragon",
+    "aplikasi": "aplikasi app whatsapp instagram tiktok google android ios update fitur software windows",
+    "siber": "siber hacker peretas kebocoran data malware ransomware penipuan phishing keamanan",
+    "startup": "startup unicorn pendanaan investor e-commerce tokopedia gojek grab shopee fintech",
+    "game": "game gim esports playstation nintendo xbox steam mobile legends",
+    "sains": "sains antariksa nasa roket satelit penelitian ilmuwan iklim",
+}
+TEKNOLOGI_TAG_LABEL = {"ai": "AI", "gadget": "Gadget", "aplikasi": "Aplikasi & Internet", "siber": "Keamanan Siber",
+                       "startup": "Startup & Bisnis", "game": "Game", "sains": "Sains & Antariksa"}
+
 RETENTION_SECONDS = int(os.environ.get("RHEUS_RETENTION_SECONDS", str(48 * 3600)))  # memori sementara: 2 hari
 
 # ---------------------------------------------------------------- Berita Viral

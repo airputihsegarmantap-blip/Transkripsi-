@@ -6,6 +6,7 @@ Endpoint utama (semua JSON):
   GET  /v1/health                     status server
   GET  /v1/news/utama                 Berita Utama (nasional & internasional + kategori)
   GET  /v1/news/finansial             Berita Finansial
+  GET  /v1/news/teknologi             Berita Teknologi
   GET  /v1/news/viral?region=id|us    Berita Viral per platform & kategori
   GET  /v1/btc?tf=24j|7h|30h          Analisa & prediksi arah Bitcoin
   GET  /v1/radio?region=id|us         Stasiun radio gratis
@@ -150,6 +151,17 @@ def health():
 @app.get("/v1/news/utama")
 async def news_utama(refresh: bool = False):
     return await cached("utama", 600, _utama, force=refresh)
+
+
+async def _teknologi():
+    d = await news.build_teknologi(brain(), STATE["memory"], await _hoax())
+    kb().add_stories(d["hot"] + d["list"], "teknologi")
+    return d
+
+
+@app.get("/v1/news/teknologi")
+async def news_teknologi(refresh: bool = False):
+    return await cached("teknologi", 600, _teknologi, force=refresh)
 
 
 @app.get("/v1/news/finansial")

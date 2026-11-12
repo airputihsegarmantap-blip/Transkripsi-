@@ -73,15 +73,25 @@ def knowledge_docs(snap: dict) -> list[dict]:
     u = snap.get("utama") or {}
     for sec in (u.get("sections") or {}).values():
         add(sec["hot"] + sec["list"], "berita")
-    f = snap.get("finansial") or {}
-    add(f.get("hot", []) + f.get("list", []), "finansial")
+    for kind in ("finansial", "teknologi"):
+        f = snap.get(kind) or {}
+        add(f.get("hot", []) + f.get("list", []), kind)
     for r in ("id", "us"):
         v = snap.get("viral-" + r) or {}
         add(v.get("hot", []) + v.get("list", []), "viral")
     return docs
 
 
-async def run(out: str, skip_radio_hours: float = 24) -> dict:
+def _age_hours(path: str) -> float:
+    """Umur data dari `updatedAt` di dalam file (mtime tidak bisa dipakai: direset oleh git clone)."""
+    try:
+        with open(path, "rb") as f:
+            return (time.time() - float(orjson.loads(f.read()).get("updatedAt", 0))) / 3600
+    except Exception:  # noqa: BLE001
+        return 1e9
+
+
+async def run(out: str, skip_radio_hours: float = 6) -> dict:
     t0 = time.time()
     now = time.time()
     os.makedirs(out, exist_ok=True)
@@ -111,18 +121,20 @@ async def run(out: str, skip_radio_hours: float = 24) -> dict:
     results = await asyncio.gather(
         timed("utama", news.build_utama(brain, memory, hoax, now)),
         timed("finansial", news.build_finansial(brain, memory, hoax, now)),
+        timed("teknologi", news.build_teknologi(brain, memory, hoax, now)),
         timed("viral-id", news.build_viral(brain, memory, hoax, "id", now)),
         timed("viral-us", news.build_viral(brain, memory, hoax, "us", now)),
         *(timed(f"btc-{tf}", btc.analyze(tf)) for tf in btc.TFS),
     )
     snap = {k: v for k, v in results if v is not None}
 
-    # Radio jarang berubah: perbarui sekali sehari.
+    # Radio: daftar stasiun hidup diperbarui setiap 6 jam (stasiun mati cepat tersingkir).
     for r in ("id", "us"):
         p = os.path.join(out, f"radio-{r}.json")
-        if not os.path.exists(p) or time.time() - os.path.getmtime(p) > skip_radio_hours * 3600:
+        if _age_hours(p) > skip_radio_hours:
             name, val = await timed(f"radio-{r}", radio.stations(r, 80))
             if val:
+                val["updatedAt"] = now
                 snap[name] = val
 
     sizes = {}
@@ -144,9 +156,10 @@ async def run(out: str, skip_radio_hours: float = 24) -> dict:
 
     manifest = {
         "version": FILES_VERSION, "rheus": __version__, "transcriptbot": transcriptbot.VERSION,
+        "llm": ({"url": os.environ["RHEUS_LLM_URL"].rstrip("/"), "model": "Llama 3.2 3B Instruct"} if os.environ.get("RHEUS_LLM_URL") else None),
         "updatedAt": now, "buildSeconds": round(time.time() - t0, 1), "retentionHours": config.RETENTION_SECONDS / 3600,
         "files": {k: {"bytes": b} for k, b in sizes.items()}, "timings": timings,
-        "stories": {k: count(k) for k in ("utama", "finansial", "viral-id", "viral-us")},
+        "stories": {k: count(k) for k in ("utama", "finansial", "teknologi", "viral-id", "viral-us")},
         "hoaxClaims": len(memory.get("_hoax", [])),
         "learning": {"tokensLearnedThisRun": brain.punct.seen - tokens_before, **brain.stats()},
         "model": model_meta,

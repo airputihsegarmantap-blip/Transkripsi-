@@ -76,6 +76,11 @@ def fake_get(url):
         return rss(gn("Bank sentral AS tahan suku bunga, harga minyak dunia naik", "CNBC", 70, 1))
     if "turnbackhoax" in url or "cekfakta" in url:
         return rss(plain("[SALAH] Video Banjir Besar Rendam Monas Jakarta Hari Ini", "Video lama dari 2020.", 60))
+    if "topic/TECHNOLOGY" in url:
+        return rss(gn("OpenAI rilis model AI baru, kecerdasan buatan makin canggih", "Kompas", 25, 3),
+                   gn("OpenAI rilis model AI baru, kecerdasan buatan makin canggih sekali", "Detik", 40, 2))
+    if "inet.detik.com" in url:
+        return rss(plain("Samsung umumkan smartphone lipat terbaru", "HP lipat dengan chip baru.", 30))
     if "topic/BUSINESS" in url:
         return rss(gn("Rupiah menguat ke level 15.800 per dolar AS", "Kontan", 20, 2))
     if "IHSG" in url:
@@ -115,7 +120,7 @@ def client():
 
 def test_health(client):
     r = client.get("/v1/health").json()
-    assert r["status"] == "ok" and r["transcriptbot"] == "3.0"
+    assert r["status"] == "ok" and r["transcriptbot"] == "4.0"
 
 
 def test_utama(client):
@@ -180,7 +185,7 @@ def test_transcript_process(client):
     segs = [{"start": i / 7 * 3, "duration": 3, "text": " ".join(w[i:i + 7])} for i in range(0, len(w), 7)]
     r = client.post("/v1/transcript/process", json={"video_id": "abc", "title": d["title"], "segments": segs}).json()
     tb = r["transcriptbot"]
-    assert tb["version"] == "3.0"
+    assert tb["version"] == "4.0"
     assert tb["clean"]["paragraphs"] and tb["clean"]["text"][0].isupper()
     for f in ("guys", " eh ", " gitu"):
         assert f not in tb["clean"]["text"].lower()
@@ -283,7 +288,7 @@ def test_cloud_snapshot_and_retention(tmp_path):
     with gzip.open(os.path.join(out, "memory.json.gz"), "wb") as f:
         f.write(orjson.dumps({"utama:nasional": [old, recent]}))
     m = asyncio.run(cloud.run(out))
-    for name in ("manifest", "utama", "finansial", "viral-id", "viral-us", "btc-24j", "btc-7h", "btc-30h", "radio-id", "radio-us", "knowledge"):
+    for name in ("manifest", "utama", "finansial", "teknologi", "viral-id", "viral-us", "btc-24j", "btc-7h", "btc-30h", "radio-id", "radio-us", "knowledge"):
         assert os.path.exists(os.path.join(out, name + ".json")), name
     assert os.path.getsize(os.path.join(out, "model", "punct.bin")) == 3 * (1 << 18) * 4
     u = json.load(open(os.path.join(out, "utama.json")))
@@ -313,3 +318,38 @@ def test_story_headline_prefers_credible_source():
          {"title": "Saudi serang fasilitas rudal Houthi di Yaman", "link": "https://antaranews.com/x", "source": "Antara", "ts": now - 900, "excerpt": "", "coverage": 0, "related": []}]
     s = news._story(g, now, "id", [], {})
     assert s["source"] == "Antara" and s["link"] == "https://antaranews.com/x" and s["credible"]
+
+
+def test_radio_pick_filters_broken_and_keeps_backup_urls():
+    from rheus import radio
+
+    data = [
+        {"stationuuid": "a", "name": "Prambors", "url": "http://x/pls.pls", "url_resolved": "https://s/a.mp3", "lastcheckok": 1, "codec": "MP3", "clickcount": 50},
+        {"stationuuid": "b", "name": "Mati FM", "url": "http://dead", "url_resolved": "http://dead", "lastcheckok": 0, "codec": "MP3", "clickcount": 99},
+        {"stationuuid": "c", "name": "Video TV", "url": "http://v", "url_resolved": "http://v", "lastcheckok": 1, "codec": "H.264", "clickcount": 90},
+        {"stationuuid": "d", "name": "HLS Radio", "url": "https://h/live.m3u8", "url_resolved": "https://h/live.m3u8", "lastcheckok": 1, "codec": "AAC", "hls": 1, "clickcount": 10},
+        {"stationuuid": "e", "name": "prambors ", "url": "http://dup", "lastcheckok": 1, "codec": "MP3", "clickcount": 1},
+    ]
+    out = radio.pick(data, 10)
+    assert [s["id"] for s in out] == ["a", "d"]
+    assert out[0]["urls"] == ["https://s/a.mp3", "http://x/pls.pls"]
+    assert out[1]["hls"] is True
+
+
+def test_teknologi_tags_and_verified(tmp_path):
+    import asyncio
+
+    from rheus import learn, news
+
+    async def get_text(url, ttl=300):
+        return fake_get(url)
+
+    fetch.get_text = get_text
+    hoax = news.HoaxIndex([])
+    d = asyncio.run(news.build_teknologi(learn.Brain(), {}, hoax, NOW))
+    allst = d["hot"] + d["list"]
+    ai = next(s for s in allst if "OpenAI" in s["title"])
+    assert "ai" in ai["tags"] and ai["verified"]
+    hp = next(s for s in allst if "Samsung" in s["title"])
+    assert "gadget" in hp["tags"]
+    assert {t["id"] for t in d["tags"]} >= {"ai", "gadget", "siber"}
