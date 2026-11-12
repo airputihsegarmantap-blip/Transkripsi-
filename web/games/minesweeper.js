@@ -5,6 +5,8 @@
   const LEVELS = { mudah: [9, 9, 10], sedang: [12, 12, 24], sulit: [16, 16, 40] };
   const NUM_COLOR = ["", "#9fb4ff", "#7fd1a8", "#f08b8b", "#c7a6ff", "#f0b86e", "#6fd6d6", "#e9e9ed", "#9397ab"];
 
+  const sfx = (n) => root.SLAudio && root.SLAudio.sfx(n);
+
   function mount(el) {
     let level = "mudah", W, H, M, mines, open, flag, started, over, won, flagMode = false, t0 = 0, timer;
 
@@ -16,6 +18,7 @@
       flag = new Array(W * H).fill(false);
       started = over = won = false;
       t0 = 0;
+      root.SLAudio && root.SLAudio.music("chill");
       draw();
     }
     const nb = (i) => {
@@ -50,7 +53,7 @@
     }
     function act(i, asFlag) {
       if (over) return;
-      if (asFlag) { if (!open[i]) flag[i] = !flag[i]; draw(); return; }
+      if (asFlag) { if (!open[i]) { flag[i] = !flag[i]; sfx("flag"); } draw(); return; }
       if (flag[i]) return;
       if (!started) place(i);
       if (open[i]) {
@@ -60,8 +63,9 @@
       } else if (mines[i]) {
         over = true; open[i] = true;
       } else reveal(i);
-      if (over) mines.forEach((m, k) => { if (m) open[k] = true; });
-      if (!over && open.filter((o, k) => !o && !mines[k]).length === 0) { over = won = true; }
+      if (over) { mines.forEach((m, k) => { if (m) open[k] = true; }); sfx("explode"); root.SLAudio && root.SLAudio.stopMusic(); el.classList.add("shake"); setTimeout(() => el.classList.remove("shake"), 450); }
+      else sfx("click");
+      if (!over && open.filter((o, k) => !o && !mines[k]).length === 0) { over = won = true; sfx("win"); root.SLAudio && root.SLAudio.stopMusic(); }
       draw();
     }
 
@@ -69,7 +73,7 @@
       const left = M - flag.filter(Boolean).length;
       const cells = mines.map((m, i) => {
         const o = open[i], c = o && !m ? count(i) : 0;
-        const bg = o ? (m ? "#5a2a33" : "var(--color-neutral-900)") : "var(--color-surface-2)";
+        const bg = o ? (m ? "color-mix(in srgb, var(--color-down) 35%, var(--color-surface))" : "var(--color-neutral-900)") : "var(--color-surface-2)";
         const content = flag[i] && !o ? `<i class="ph-fill ph-flag" style="color:var(--color-accent)"></i>` : o && m ? `<i class="ph-fill ph-bomb"></i>` : c ? c : "";
         return `<button data-ms="${i}" style="aspect-ratio:1;border:0;border-radius:4px;background:${bg};color:${NUM_COLOR[c] || "var(--color-text)"};font-weight:600;font-size:clamp(11px,3.4vw,16px);padding:0;cursor:pointer;${o ? "" : "box-shadow:inset 0 -2px 0 rgba(0,0,0,.35)"}">${content}</button>`;
       }).join("");
@@ -106,7 +110,7 @@
     });
     el.addEventListener("change", (e) => { if (e.target.name === "mslevel") newGame(e.target.value); });
     newGame("mudah");
-    return { destroy() { clearInterval(timer); el.innerHTML = ""; } };
+    return { destroy() { clearInterval(timer); root.SLAudio && root.SLAudio.stopMusic(); el.innerHTML = ""; } };
   }
 
   root.SLGames = root.SLGames || {};

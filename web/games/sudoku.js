@@ -58,6 +58,8 @@
     return { sol, puz };
   }
 
+  const sfx = (n) => root.SLAudio && root.SLAudio.sfx(n);
+
   function mount(el) {
     let level = "mudah", sol, given, cur, sel = -1, mistakes = 0, start = Date.now(), done = false, timer;
 
@@ -66,6 +68,7 @@
       const g = generate(LEVELS[level]);
       sol = g.sol; given = g.puz.map((v) => v !== 0); cur = g.puz.slice();
       sel = -1; mistakes = 0; start = Date.now(); done = false;
+      root.SLAudio && root.SLAudio.music("chill");
       draw();
     }
 
@@ -75,9 +78,9 @@
         const r = Math.floor(i / 9), c = i % 9;
         const same = sel >= 0 && (Math.floor(sel / 9) === r || sel % 9 === c || (Math.floor(Math.floor(sel / 9) / 3) === Math.floor(r / 3) && Math.floor((sel % 9) / 3) === Math.floor(c / 3)));
         const wrong = v && !given[i] && v !== sol[i];
-        const bg = i === sel ? "var(--color-accent-700)" : selV && v === selV ? "var(--color-accent-900)" : same ? "#20223a" : "var(--color-surface)";
+        const bg = i === sel ? "var(--color-accent-700)" : selV && v === selV ? "var(--color-accent-900)" : same ? "var(--color-neutral-900)" : "var(--color-surface)";
         const bt = r % 3 === 0 ? 2 : 0.5, bl = c % 3 === 0 ? 2 : 0.5;
-        return `<button data-cell="${i}" style="aspect-ratio:1;border:0;border-top:${bt}px solid #4a4e63;border-left:${bl}px solid #4a4e63;${r === 8 ? "border-bottom:2px solid #4a4e63;" : ""}${c === 8 ? "border-right:2px solid #4a4e63;" : ""}background:${bg};color:${wrong ? "var(--color-down)" : given[i] ? "var(--color-text)" : "var(--color-accent-300)"};font-size:clamp(15px,4.5vw,22px);font-weight:${given[i] ? 600 : 500};cursor:pointer;padding:0">${v || ""}</button>`;
+        return `<button data-cell="${i}" style="aspect-ratio:1;border:0;border-top:${bt}px solid var(--color-neutral-700);border-left:${bl}px solid var(--color-neutral-700);${r === 8 ? "border-bottom:2px solid var(--color-neutral-700);" : ""}${c === 8 ? "border-right:2px solid var(--color-neutral-700);" : ""}background:${bg};color:${wrong ? "var(--color-down)" : given[i] ? "var(--color-text)" : "var(--color-accent-300)"};font-size:clamp(15px,4.5vw,22px);font-weight:${given[i] ? 600 : 500};cursor:pointer;padding:0">${v || ""}</button>`;
       }).join("");
       el.innerHTML = `
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -106,14 +109,14 @@
     function put(n) {
       if (sel < 0 || given[sel] || done) return;
       cur[sel] = n;
-      if (n && n !== sol[sel]) mistakes++;
-      if (cur.every((v, i) => v === sol[i])) done = true;
+      if (n && n !== sol[sel]) { mistakes++; sfx("error"); } else sfx(n ? "place" : "click");
+      if (cur.every((v, i) => v === sol[i])) { done = true; sfx("win"); root.SLAudio && root.SLAudio.stopMusic(); }
       draw();
     }
 
     el.addEventListener("click", (e) => {
       const c = e.target.closest("[data-cell]");
-      if (c) { sel = +c.dataset.cell; draw(); return; }
+      if (c) { sel = +c.dataset.cell; sfx("click"); draw(); return; }
       const n = e.target.closest("[data-num]");
       if (n) { put(+n.dataset.num); return; }
       if (e.target.closest("[data-sd=new]")) newGame();
@@ -125,7 +128,7 @@
     };
     document.addEventListener("keydown", onKey);
     newGame("mudah");
-    return { destroy() { clearInterval(timer); document.removeEventListener("keydown", onKey); el.innerHTML = ""; } };
+    return { destroy() { clearInterval(timer); root.SLAudio && root.SLAudio.stopMusic(); document.removeEventListener("keydown", onKey); el.innerHTML = ""; } };
   }
 
   root.SLGames = root.SLGames || {};

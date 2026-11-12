@@ -99,13 +99,18 @@ const MENU = [
   { id: "viral", label: "Berita Viral", desc: "Per media sosial & kategori", icon: "ph-fire", hue: 345 },
   { id: "radio", label: "Radio", desc: "Stasiun radio gratis", icon: "ph-radio", hue: 290 },
   { id: "musik", label: "Musik Online", desc: "YouTube Music di dalam aplikasi", icon: "ph-music-notes", hue: 320 },
-  { id: "games", label: "Gim", desc: "Dino, Ular Tangga, Sudoku, Minesweeper", icon: "ph-game-controller", hue: 100, offline: true },
+  { id: "games", label: "Gim", desc: "9 gim dengan musik & efek suara", icon: "ph-game-controller", hue: 100, offline: true },
 ];
 const GAMES = [
-  { id: "dino", label: "Gim Dino", desc: "Lompat, hindari kaktus", icon: "ph-person-simple-run" },
-  { id: "snakes", label: "Ular Tangga", desc: "Lawan komputer atau 2–4 pemain", icon: "ph-dice-five" },
-  { id: "sudoku", label: "Sudoku", desc: "Mudah, sedang, sulit", icon: "ph-grid-nine" },
-  { id: "minesweeper", label: "Minesweeper", desc: "Temukan semua ranjau", icon: "ph-bomb" },
+  { id: "petualang", label: "Petualangan Rheu", desc: "Platformer: lari, lompat, capai bendera", icon: "ph-flag-pennant", hue: 150, tag: "Aksi" },
+  { id: "invasi", label: "Invasi Galaksi", desc: "Tembak gelombang penyerbu luar angkasa", icon: "ph-rocket", hue: 255, tag: "Arkade" },
+  { id: "kepak", label: "Kepak Sayap", desc: "Ketuk untuk terbang melewati pilar", icon: "ph-bird", hue: 200, tag: "Arkade" },
+  { id: "dino", label: "Dino Lari", desc: "Lari tanpa akhir, lompat ganda", icon: "ph-person-simple-run", hue: 30, tag: "Arkade" },
+  { id: "bata", label: "Pecah Bata", desc: "Pantulkan bola, hancurkan bata", icon: "ph-wall", hue: 340, tag: "Arkade" },
+  { id: "ular", label: "Ular Neon", desc: "Makan, memanjang, jangan tabrak", icon: "ph-infinity", hue: 120, tag: "Klasik" },
+  { id: "snakes", label: "Ular Tangga", desc: "Lawan komputer atau 2–4 pemain", icon: "ph-dice-five", hue: 45, tag: "Papan" },
+  { id: "sudoku", label: "Sudoku", desc: "Mudah, sedang, sulit", icon: "ph-grid-nine", hue: 220, tag: "Teka-teki" },
+  { id: "minesweeper", label: "Minesweeper", desc: "Temukan semua ranjau", icon: "ph-bomb", hue: 0, tag: "Teka-teki" },
 ];
 const state = {
   page: "home", game: null, gameInst: null, newsPage: 1,
@@ -874,14 +879,21 @@ function renderPlayer() {
 // ---------------------------------------------------------------------- gim (offline)
 function viewGames() {
   const g = GAMES.find((x) => x.id === state.game);
+  const best = (id) => +store.get("sl-best-" + id, 0) || 0;
   if (!g) {
-    return `<section class="section"><div class="page-head"><h2>Gim</h2><p class="text-muted">Semua gim bisa dimainkan tanpa internet.</p></div>
-      <div class="grid-auto" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))">
-        ${GAMES.map((x, i) => `<button class="card game-card reveal" data-game="${x.id}" style="--i:${i}"><i class="ph ${x.icon}"></i><span class="card-title">${esc(x.label)}</span><span class="card-meta">${esc(x.desc)}</span></button>`).join("")}
+    const muted = !Settings.sfx && !Settings.music;
+    return `<section class="section"><div class="head-row page-head"><div style="margin-right:auto"><h2>Gim</h2><p class="text-muted">9 gim, semuanya bisa dimainkan tanpa internet.</p></div>
+      <button class="btn btn-secondary" data-action="toggleSound"><i class="ph-fill ${muted ? "ph-speaker-slash" : "ph-speaker-high"}"></i>${muted ? "Suara mati" : "Suara nyala"}</button></div>
+      <div class="game-grid">
+        ${GAMES.map((x, i) => `<button class="game-tile reveal" data-game="${x.id}" style="--i:${i};--h:${x.hue}">
+          <span class="game-art"><i class="ph-fill ${x.icon}"></i></span>
+          <span class="tag tag-neutral game-tag">${esc(x.tag)}</span>
+          <span class="mt-label">${esc(x.label)}</span><span class="mt-desc">${esc(x.desc)}</span>
+          ${best(x.id) ? `<span class="card-meta"><i class="ph-fill ph-trophy" style="color:#ffd166"></i>Rekor ${best(x.id)}</span>` : ""}</button>`).join("")}
       </div></section>`;
   }
-  return `<section class="section" style="gap:14px"><div class="head-row"><button class="btn btn-secondary btn-icon" data-go="games" aria-label="Kembali"><i class="ph ph-caret-left"></i></button>
-    <h2 style="margin:0;margin-right:auto">${esc(g.label)}</h2></div><div id="gameRoot"></div></section>`;
+  return `<section class="section" style="gap:12px"><div class="head-row" style="align-items:center"><button class="btn btn-secondary btn-icon" data-go="games" aria-label="Kembali"><i class="ph ph-caret-left"></i></button>
+    <h2 style="margin:0;margin-right:auto;font-size:22px">${esc(g.label)}</h2></div><div id="gameRoot"></div></section>`;
 }
 function mountGame() {
   const root = $("gameRoot");
@@ -941,6 +953,7 @@ const ACTIONS = {
   shareArticle: () => { const a = state.article; if (a) Platform.share(a.title, `${a.title}\n${a.link}`); },
   openStatus,
   openSettings,
+  toggleSound: () => { const on = !Settings.sfx && !Settings.music; Settings.set("sfx", on); Settings.set("music", on); if (window.SLAudio) { SLAudio.refresh(); if (on) SLAudio.sfx("coin"); } softRender(); },
   toggleTheme: () => { const light = document.documentElement.dataset.theme === "light"; Settings.set("theme", light ? "dark" : "light"); haptic(); },
   togglePlay: () => {
     haptic();

@@ -468,3 +468,57 @@ sup.cite { font-size: 10px; font-weight: 700; color: var(--color-accent-300); ba
 [data-theme="light"] .station-logo img { background: #fff; }
 [data-theme="light"] .chart polyline { stroke: #6f62c9; }
 [data-theme="light"] .hot-card.top::before { background: linear-gradient(120deg, transparent 30%, #6f62c9 50%, transparent 70%) 0 0 / 250% 100%; }
+
+/* ======================================================================
+   Gim 2.0
+   ====================================================================== */
+.game-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 158px), 1fr)); gap: 10px; }
+.game-tile { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 14px; min-height: 168px;
+  border: 0; border-radius: var(--radius-lg); cursor: pointer; text-align: left; font: inherit; color: var(--color-text);
+  background: linear-gradient(160deg, hsl(var(--h) 45% 24%), var(--color-surface) 78%); box-shadow: var(--shadow-sm); transition: transform .15s ease, box-shadow .2s; }
+.game-tile:active { transform: scale(.96); }
+.game-art { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; font-size: 30px; margin-bottom: 4px;
+  color: hsl(var(--h) 90% 82%); background: hsl(var(--h) 55% 34% / .7); box-shadow: 0 8px 24px hsl(var(--h) 70% 40% / .35), inset 0 0 0 1px hsl(var(--h) 70% 70% / .35); }
+.game-tile:hover .game-art, .game-tile:active .game-art { animation: wiggle .5s ease; }
+@keyframes wiggle { 30% { transform: rotate(-10deg) scale(1.08); } 60% { transform: rotate(8deg) scale(1.08); } }
+.game-tag { position: absolute; top: 12px; right: 12px; font-size: 10px; height: 20px; padding: 0 8px; }
+[data-theme="light"] .game-tile { background: linear-gradient(160deg, hsl(var(--h) 80% 92%), var(--color-surface) 78%); }
+[data-theme="light"] .game-art { color: hsl(var(--h) 60% 36%); background: hsl(var(--h) 75% 88%); }
+
+.gx { display: flex; flex-direction: column; align-items: center; gap: 10px; user-select: none; -webkit-user-select: none; }
+.gx-hud { width: 100%; max-width: 520px; display: flex; align-items: center; gap: 10px; }
+.gx-score { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; min-width: 54px; display: inline-block; transform-origin: left center; }
+.gx-score.bump { animation: bump .22s ease; }
+@keyframes bump { 40% { transform: scale(1.25); color: #ffd166; } }
+.gx-best { font-size: 12px; color: var(--color-neutral-500); }
+.gx-extra { margin-left: auto; font-size: 13px; font-weight: 600; color: #ff8a9a; white-space: nowrap; }
+.gx-icon { width: 36px; height: 36px; border-radius: 10px; border: 0; cursor: pointer; display: grid; place-items: center; font-size: 17px; color: var(--color-text); background: var(--color-surface-2); box-shadow: inset 0 0 0 1px var(--color-border); }
+.gx-stage { position: relative; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-lg); background: #0b0c1a; line-height: 0; }
+.gx-stage canvas { display: block; touch-action: none; }
+.gx-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; line-height: 1.3;
+  color: #fff; background: rgba(10, 10, 26, .62); backdrop-filter: blur(3px); }
+.gx-overlay.show { display: flex; animation: fadein .25s ease both; }
+@keyframes fadein { from { opacity: 0; } }
+.gx-title { font-size: clamp(22px, 7vw, 32px); font-weight: 900; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(145, 132, 217, .9); animation: pop .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+.gx-sub { font-size: 13px; color: #c9c9dd; max-width: 260px; }
+.gx-final { font-size: 52px; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; animation: pop .5s .1s cubic-bezier(.2, 1.4, .4, 1) both; }
+.gx-new { font-size: 14px; font-weight: 800; color: #ffd166; animation: blink 1s steps(2) infinite; }
+.gx-medal { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 99px; font-size: 13px; font-weight: 700; color: #12131d; }
+.gx-medal.bronze { background: #d9975b; } .gx-medal.silver { background: #d5d8e4; } .gx-medal.gold { background: #ffd166; }
+.gx-play { display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 26px; border: 0; border-radius: 99px; cursor: pointer; font: inherit; font-size: 16px; font-weight: 800;
+  color: #14121f; background: linear-gradient(180deg, #b9b0ec, #8a7cdb); box-shadow: 0 6px 0 #5446ae, 0 12px 30px rgba(145, 132, 217, .5); transition: transform .08s, box-shadow .08s; animation: pulse 1.6s ease-in-out infinite; }
+.gx-play:active { transform: translateY(4px); box-shadow: 0 2px 0 #5446ae; }
+@keyframes pulse { 50% { transform: scale(1.05); } }
+.gx-link { background: none; border: 0; color: #c9c9dd; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; padding: 6px; }
+.gx-pad { display: flex; gap: 10px; width: 100%; max-width: 420px; justify-content: center; }
+.gx-key { flex: 1; max-width: 84px; height: 62px; border: 0; border-radius: 16px; cursor: pointer; font-size: 26px; display: grid; place-items: center; touch-action: none;
+  color: var(--color-text); background: var(--color-surface-2); box-shadow: 0 5px 0 var(--color-neutral-800), inset 0 0 0 1px var(--color-border); transition: transform .06s, box-shadow .06s; }
+.gx-key.wide { max-width: none; flex: 1.6; margin-left: 14px; color: #14121f; background: linear-gradient(180deg, #b9b0ec, #8a7cdb); box-shadow: 0 5px 0 #5446ae; }
+.gx-key.on { transform: translateY(4px); box-shadow: 0 1px 0 var(--color-neutral-800); }
+.gx-key.wide.on { box-shadow: 0 1px 0 #5446ae; }
+.gx-hint { margin: 0; font-size: 12.5px; color: var(--color-neutral-500); text-align: center; max-width: 420px; text-wrap: pretty; }
+.dice { width: 64px; height: 64px; border-radius: 14px; background: var(--color-neutral-900); display: grid; place-items: center; font-size: 30px; font-weight: 700; box-shadow: inset 0 0 0 1px var(--color-border); }
+.dice.rolling { animation: diceroll .42s linear; }
+@keyframes diceroll { 25% { transform: rotate(90deg) scale(1.1); } 50% { transform: rotate(180deg); } 75% { transform: rotate(270deg) scale(1.1); } 100% { transform: rotate(360deg); } }
+.shake { animation: shakeit .45s ease; }
+@keyframes shakeit { 10%, 50%, 90% { transform: translateX(-5px); } 30%, 70% { transform: translateX(5px); } }
