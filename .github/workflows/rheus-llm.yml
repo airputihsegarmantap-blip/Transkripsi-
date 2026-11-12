@@ -28,6 +28,24 @@ jobs:
       - name: Uji worker (tanpa Cloudflare)
         run: node eval/worker_test.mjs
 
+      - name: Periksa token & Account ID Cloudflare
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then exit 0; fi
+          if ! echo "$CLOUDFLARE_ACCOUNT_ID" | grep -Eq '^[0-9a-f]{32}$'; then
+            echo "::error::CLOUDFLARE_ACCOUNT_ID bukan Account ID yang valid (harus 32 karakter huruf a-f/angka, tanpa spasi)."
+            exit 1
+          fi
+          api() { curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/$1"; }
+          ok() { python3 -c "import json,sys;d=json.load(sys.stdin);print('OK' if d.get('success') else 'GAGAL: '+'; '.join(e.get('message','?') for e in d.get('errors',[])));sys.exit(0 if d.get('success') else 1)"; }
+          echo -n "1. Token valid & aktif ........ "; api user/tokens/verify | ok || echo "   -> Token salah salin/kedaluwarsa. Buat token baru."
+          echo -n "2. Boleh mengelola Worker ..... "
+          if api "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" | ok; then :; else
+            echo "::error::Token tidak punya izin 'Workers Scripts: Edit' untuk akun ini. Buat ulang token dari template 'Edit Cloudflare Workers' dan pada 'Account Resources' pilih akun Anda (Include -> akun Anda). Pastikan Account ID juga dari akun yang sama."
+            exit 1
+          fi
+          echo -n "3. Subdomain workers.dev ...... "
+          api "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | python3 -c "import json,sys;d=json.load(sys.stdin);s=(d.get('result') or {}).get('subdomain');print(s+'.workers.dev' if s else 'BELUM ADA -> buka Workers & Pages di dashboard Cloudflare sekali lalu buat subdomain')"
+
       - name: Deploy ke Cloudflare
         working-directory: cloud/rheus-llm
         run: |

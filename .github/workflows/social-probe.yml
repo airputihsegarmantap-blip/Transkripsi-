@@ -1,0 +1,43 @@
+name: Probe sumber tren sosial (hanya pengecekan, tanpa login)
+
+# Mengecek halaman/API PUBLIK mana yang bisa dibuka dari server GitHub tanpa akun & tanpa login.
+# Hanya satu permintaan GET/POST biasa per sumber. Tidak ada upaya menembus login atau anti-bot.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/social-probe.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cek sumber
+        run: |
+          UA="SiLengkap-Rheus/2.0 (pengecekan ketersediaan tren publik)"
+          Y=$(date -u -d yesterday +%Y/%m/%d)
+          probe() { # nama url [curl args...]
+            local name="$1" url="$2"; shift 2
+            local out; out=$(curl -s -L -m 25 -A "$UA" -o /tmp/body -w "%{http_code} %{size_download}B final=%{url_effective}" "$@" "$url" 2>&1)
+            echo "── $name"; echo "   HTTP $out"
+            head -c 260 /tmp/body | tr '\n' ' ' | sed 's/^/   > /'; echo
+          }
+          probe "Google Trends Indonesia (RSS)"     "https://trends.google.com/trending/rss?geo=ID"
+          probe "Google Trends AS (RSS)"            "https://trends.google.com/trending/rss?geo=US"
+          probe "Reddit r/indonesia (JSON)"         "https://www.reddit.com/r/indonesia/hot.json?limit=5"
+          probe "Reddit r/popular (JSON)"           "https://www.reddit.com/r/popular.json?limit=5"
+          probe "Reddit r/indonesia (RSS)"          "https://www.reddit.com/r/indonesia/hot/.rss?limit=5"
+          probe "Mastodon tren postingan"           "https://mastodon.social/api/v1/trends/statuses?limit=5"
+          probe "Mastodon tren tagar"               "https://mastodon.social/api/v1/trends/tags?limit=5"
+          probe "Bluesky topik tren"                "https://public.api.bsky.app/xrpc/app.bsky.unspecced.getTrendingTopics?limit=5"
+          probe "Wikipedia paling dibaca (id)"      "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/id.wikipedia/all-access/$Y"
+          probe "YouTube halaman trending (HTML)"   "https://www.youtube.com/feed/trending?gl=ID&hl=id"
+          probe "YouTube browse FEtrending (API)"   "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false" -X POST -H "Content-Type: application/json" \
+            -d '{"context":{"client":{"clientName":"WEB","clientVersion":"2.20250101.00.00","hl":"id","gl":"ID"}},"browseId":"FEtrending"}'
+          probe "YouTube Charts (HTML)"             "https://charts.youtube.com/charts/TrendingVideos/id"
+          probe "TikTok Creative Center hashtag"    "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pad/id?countryCode=ID"
+          probe "TikTok explore (HTML)"             "https://www.tiktok.com/explore"
+          probe "Instagram explore"                 "https://www.instagram.com/explore/"
+          probe "X explore"                         "https://x.com/explore"
+          probe "Facebook (beranda publik)"         "https://www.facebook.com/"
