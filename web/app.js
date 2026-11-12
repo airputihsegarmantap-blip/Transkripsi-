@@ -493,7 +493,12 @@ async function streamLLM(path, body, { onSources, onToken, signal } = {}) {
           const j = JSON.parse(data);
           if (ev === "sources") onSources && onSources(j);
           else if (ev === "error") throw new Error(j.message);
-          else if (j.response) onToken && onToken(j.response);
+          else {
+            // Workers AI mengirim dua gaya: {response:"…"} (lama) atau gaya OpenAI {choices:[{delta:{content:"…"}}]} (model v2).
+            const c = j.choices && j.choices[0] && j.choices[0].delta;
+            const tok = (c && c.content) || j.response;
+            if (tok) onToken && onToken(tok);
+          }
         } catch (err) { if (ev === "error") throw err; }
       } else if (!line) ev = "message";
     }

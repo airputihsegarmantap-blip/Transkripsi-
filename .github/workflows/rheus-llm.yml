@@ -68,5 +68,24 @@ jobs:
           echo "Rheus LLM: $url"
           sleep 5
           curl -s "$url/health"; echo
-          curl -sN -X POST "$url/chat" -H "Content-Type: application/json" \
-            -d '{"messages":[{"role":"user","content":"Apa berita utama hari ini?"}]}' | head -c 1500; echo
+          curl -sN -m 90 -X POST "$url/chat" -H "Content-Type: application/json" \
+            -d '{"messages":[{"role":"user","content":"Apa berita utama hari ini?"}]}' > /tmp/chat.sse || true
+          python3 - <<'PY'
+          import json
+          ev = None; txt = ""; src = []; chunks = 0; style = set()
+          for line in open("/tmp/chat.sse", encoding="utf-8", errors="replace"):
+              line = line.strip()
+              if line.startswith("event:"): ev = line[6:].strip()
+              elif line.startswith("data:"):
+                  d = line[5:].strip()
+                  if d == "[DONE]": continue
+                  try: j = json.loads(d)
+                  except Exception: continue
+                  if ev == "sources": src = j; ev = None; continue
+                  chunks += 1
+                  c = ((j.get("choices") or [{}])[0].get("delta") or {}).get("content")
+                  if c: txt += c; style.add("delta.content")
+                  elif j.get("response"): txt += j["response"]; style.add("response")
+          print("sumber:", len(src), "| potongan:", chunks, "| format:", sorted(style))
+          print("JAWABAN:", txt[:900] or "(KOSONG!)")
+          PY
