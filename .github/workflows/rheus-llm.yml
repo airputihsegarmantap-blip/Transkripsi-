@@ -37,7 +37,10 @@ jobs:
           fi
           api() { curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/$1"; }
           ok() { python3 -c "import json,sys;d=json.load(sys.stdin);print('OK' if d.get('success') else 'GAGAL: '+'; '.join(e.get('message','?') for e in d.get('errors',[])));sys.exit(0 if d.get('success') else 1)"; }
-          echo -n "1. Token valid & aktif ........ "; api user/tokens/verify | ok || echo "   -> Token salah salin/kedaluwarsa. Buat token baru."
+          echo -n "1. Token valid & aktif ........ "
+          if api user/tokens/verify | ok > /tmp/v1 2>&1; then cat /tmp/v1
+          elif api "accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | ok > /tmp/v2 2>&1; then cat /tmp/v2
+          else echo "GAGAL (token salah salin, kedaluwarsa, atau bukan token API)"; fi
           echo -n "2. Boleh mengelola Worker ..... "
           if api "accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" | ok; then :; else
             echo "::error::Token tidak punya izin 'Workers Scripts: Edit' untuk akun ini. Buat ulang token dari template 'Edit Cloudflare Workers' dan pada 'Account Resources' pilih akun Anda (Include -> akun Anda). Pastikan Account ID juga dari akun yang sama."
