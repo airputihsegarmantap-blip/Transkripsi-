@@ -74,6 +74,14 @@ def fake_get(url):
         return rss(gn("Pasukan dan tank dikerahkan ke perbatasan setelah serangan drone", "Detik", 60, 2))
     if "ekonomi" in url:
         return rss(gn("Bank sentral AS tahan suku bunga, harga minyak dunia naik", "CNBC", 70, 1))
+    if "turnbackhoax" in url or "cekfakta" in url:
+        return rss(plain("[SALAH] Video Banjir Besar Rendam Monas Jakarta Hari Ini", "Video lama dari 2020.", 60))
+    if "topic/BUSINESS" in url:
+        return rss(gn("Rupiah menguat ke level 15.800 per dolar AS", "Kontan", 20, 2))
+    if "IHSG" in url:
+        return rss(gn("IHSG ditutup naik 1 persen didorong saham perbankan", "CNBC Indonesia", 15, 3),
+                   gn("Video banjir besar rendam Monas Jakarta hari ini beredar", "Situs Abal", 5, 0),
+                   gn("Saham bank kecil melonjak, investor ritel ramai membeli", "BlogSahamKu", 8, 0))
     if "kripto" in url and "news.google.com" in url:
         return rss(gn("ETF Bitcoin catat arus masuk US$1,2 miliar dalam sepekan", "CNBC Indonesia", 30, 5),
                    gn("Arus masuk ETF Bitcoin capai US$1,2 miliar sepekan", "Kontan", 50, 2))
@@ -146,10 +154,18 @@ def test_btc(client):
             assert b["model"]["confidence"] == "rendah"
 
 
-def test_kripto(client):
-    d = client.get("/v1/news/kripto").json()
-    assert d["hot"][0]["title"].startswith("ETF Bitcoin") and len(d["hot"][0]["sources"]) == 2
-    assert not any("IHSG" in s["title"] for s in d["hot"] + d["list"])
+def test_finansial_accuracy(client):
+    d = client.get("/v1/news/finansial").json()
+    allst = d["hot"] + d["list"]
+    titles = [s["title"] for s in allst]
+    assert not any("Monas" in t for t in titles), "klaim yang sudah dinyatakan HOAKS harus dibuang"
+    assert d["stats"]["hoaxFiltered"] >= 1
+    etf = next(s for s in allst if s["title"].startswith("ETF Bitcoin"))
+    assert etf["verified"] and "kripto" in etf["tags"]
+    assert all(h["credible"] for h in d["hot"]), "headline hot hanya dari media kredibel"
+    blog = next(s for s in allst if "BlogSahamKu" in s["source"])
+    assert not blog["credible"] and blog not in d["hot"]
+    assert any(t["id"] == "saham" and t["count"] >= 1 for t in d["tags"])
 
 
 def test_radio(client):
@@ -245,3 +261,45 @@ def test_model_does_not_force_unrelated_category():
         b.classify("viral", f"aplikasi smartphone android baru teknologi {i}", "teknologi")
     y, p, src = b.classify("viral", "Anggota polres diperiksa setelah video pesta beredar", None)
     assert y != "teknologi"
+
+
+def test_cloud_snapshot_and_retention(tmp_path):
+    import asyncio
+    import gzip
+
+    import orjson
+
+    from rheus import cloud
+
+    async def get_text(url, ttl=300):
+        return fake_get(url)
+
+    fetch.get_text = get_text
+    out = str(tmp_path / "v2")
+    os.makedirs(out)
+    # Memori lama: satu artikel berumur 3 hari harus terhapus, satu berumur 1 jam harus tetap.
+    old = {"title": "Berita lama sekali tentang pemilu daerah", "link": "https://x/old", "source": "Kompas", "ts": NOW - 3 * 86400, "excerpt": "", "coverage": 0, "related": []}
+    recent = {"title": "Gubernur resmikan jembatan baru di Kalimantan", "link": "https://x/new", "source": "Antara", "ts": NOW - 3600, "excerpt": "", "coverage": 0, "related": []}
+    with gzip.open(os.path.join(out, "memory.json.gz"), "wb") as f:
+        f.write(orjson.dumps({"utama:nasional": [old, recent]}))
+    m = asyncio.run(cloud.run(out))
+    for name in ("manifest", "utama", "finansial", "viral-id", "viral-us", "btc-24j", "btc-7h", "btc-30h", "radio-id", "radio-us", "knowledge"):
+        assert os.path.exists(os.path.join(out, name + ".json")), name
+    assert os.path.getsize(os.path.join(out, "model", "punct.bin")) == 3 * (1 << 18) * 4
+    u = json.load(open(os.path.join(out, "utama.json")))
+    titles = [s["title"] for s in u["sections"]["nasional"]["hot"] + u["sections"]["nasional"]["list"]]
+    assert "Gubernur resmikan jembatan baru di Kalimantan" in titles
+    assert "Berita lama sekali tentang pemilu daerah" not in titles
+    assert m["stories"]["finansial"] >= 3 and m["hoaxClaims"] >= 1
+    k = json.load(open(os.path.join(out, "knowledge.json")))
+    assert len(k["docs"]) > 5
+
+
+def test_js_constants_up_to_date():
+    """web/tb3-const.js harus sama dengan hasil `python -m rheus.export_js` (versi HP = versi Python)."""
+    from pathlib import Path
+
+    from rheus import export_js
+
+    path = Path(__file__).resolve().parents[2] / "web" / "tb3-const.js"
+    assert path.read_text(encoding="utf-8") == export_js.render(), "Jalankan: python -m rheus.export_js ../web/tb3-const.js"

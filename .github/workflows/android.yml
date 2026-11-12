@@ -22,6 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ambil model TranscriptBot terbaru dari Rheus Cloud
+        run: |
+          mkdir -p web/model
+          for f in punct.bin case.json meta.json; do
+            curl -sfL -o "web/model/$f" "https://raw.githubusercontent.com/${{ github.repository }}/rheus-data/v2/model/$f" || echo "model $f belum tersedia (aplikasi memakai mode cadangan)"
+          done
+          ls -la web/model
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

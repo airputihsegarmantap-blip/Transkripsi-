@@ -1,11 +1,11 @@
-"""Server API RheusInterface (FastAPI).
+"""Server API Rheus (FastAPI) — opsional. Aplikasi SiLengkap memakai Rheus Cloud (lihat cloud.py).
 
 Jalankan:  uvicorn rheus.app:app --host 0.0.0.0 --port 8000
 
 Endpoint utama (semua JSON):
   GET  /v1/health                     status server
   GET  /v1/news/utama                 Berita Utama (nasional & internasional + kategori)
-  GET  /v1/news/kripto                Berita Kripto Hari Ini
+  GET  /v1/news/finansial             Berita Finansial
   GET  /v1/news/viral?region=id|us    Berita Viral per platform & kategori
   GET  /v1/btc?tf=24j|7h|30h          Analisa & prediksi arah Bitcoin
   GET  /v1/radio?region=id|us         Stasiun radio gratis
@@ -65,21 +65,30 @@ async def cached(key: str, ttl: float, fn, force: bool = False):
         return val
 
 
+async def _hoax():
+    hit = STATE.get("hoax")
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    idx = await news.load_hoaxes(STATE["memory"], time.time())
+    STATE["hoax"] = (time.time(), idx)
+    return idx
+
+
 async def _utama():
-    d = await news.build_utama(brain())
+    d = await news.build_utama(brain(), STATE["memory"], await _hoax())
     for sec in d["sections"].values():
         kb().add_stories(sec["hot"] + sec["list"], "berita")
     return d
 
 
-async def _kripto():
-    d = await news.build_kripto(brain())
-    kb().add_stories(d["hot"] + d["list"], "kripto")
+async def _finansial():
+    d = await news.build_finansial(brain(), STATE["memory"], await _hoax())
+    kb().add_stories(d["hot"] + d["list"], "finansial")
     return d
 
 
 async def _viral(region):
-    d = await news.build_viral(brain(), region)
+    d = await news.build_viral(brain(), STATE["memory"], await _hoax(), region)
     kb().add_stories(d["hot"] + d["list"], "viral")
     return d
 
@@ -95,7 +104,7 @@ async def refresher():
     await asyncio.sleep(2)
     while True:
         t0 = time.time()
-        for key, fn, ttl in (("utama", _utama, 0), ("kripto", _kripto, 0), ("viral:id", lambda: _viral("id"), 0),
+        for key, fn, ttl in (("utama", _utama, 0), ("finansial", _finansial, 0), ("viral:id", lambda: _viral("id"), 0),
                              ("viral:us", lambda: _viral("us"), 0), ("btc:24j", lambda: _btc("24j"), 0)):
             with contextlib.suppress(Exception):
                 await cached(key, ttl, fn, force=True)
@@ -110,6 +119,7 @@ async def refresher():
 async def lifespan(_app: FastAPI):
     STATE["brain"] = learn.load(BRAIN_RUNTIME, BRAIN_BUNDLED)
     STATE["kb"] = Knowledge()
+    STATE["memory"] = {}
     task = None
     if os.environ.get("RHEUS_NO_REFRESH") != "1":
         task = asyncio.create_task(refresher())
@@ -142,9 +152,9 @@ async def news_utama(refresh: bool = False):
     return await cached("utama", 600, _utama, force=refresh)
 
 
-@app.get("/v1/news/kripto")
-async def news_kripto(refresh: bool = False):
-    return await cached("kripto", 600, _kripto, force=refresh)
+@app.get("/v1/news/finansial")
+async def news_finansial(refresh: bool = False):
+    return await cached("finansial", 600, _finansial, force=refresh)
 
 
 @app.get("/v1/news/viral")

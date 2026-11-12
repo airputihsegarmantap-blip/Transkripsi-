@@ -47,13 +47,25 @@ UTAMA_CATEGORIES = {
     "internasional": ["militer", "ekonomi", "diplomasi", "geopolitik", "lainnya"],
 }
 
-# ---------------------------------------------------------------- Berita Kripto
-KRIPTO = [
-    {"url": gn_search("kripto OR bitcoin OR ethereum when:1d"), "name": "Google Berita"},
-    {"url": "https://www.cnbcindonesia.com/market/rss", "name": "CNBC Indonesia", "filter": "kripto"},
-    {"url": "https://www.reddit.com/r/CryptoCurrency/hot/.rss?limit=25", "name": "Reddit r/CryptoCurrency", "forum": True},
+# ---------------------------------------------------------------- Berita Finansial
+FINANSIAL = [
+    {"url": gn_topic("BUSINESS"), "name": "Google Berita"},
+    {"url": gn_search("IHSG OR saham OR rupiah OR \"Bank Indonesia\" OR inflasi when:1d"), "name": "Google Berita"},
+    {"url": gn_search("kripto OR bitcoin OR emas antam OR reksa dana when:1d"), "name": "Google Berita"},
+    {"url": "https://www.cnbcindonesia.com/market/rss", "name": "CNBC Indonesia"},
 ]
-KRIPTO_FILTER = r"kripto|crypto|bitcoin|btc|ethereum|\beth\b|solana|token|blockchain|stablecoin|aset digital|bappebti|ojk"
+FINANSIAL_TAGS = {
+    "saham": "ihsg saham emiten bursa bei idx lq45 dividen ipo",
+    "rupiah": "rupiah dolar valas kurs nilai tukar",
+    "kripto": "kripto bitcoin btc ethereum crypto blockchain stablecoin token",
+    "perbankan": "bank perbankan kredit bunga ojk bi suku",
+    "emas": "emas antam komoditas minyak batu bara cpo nikel",
+    "makro": "inflasi ekonomi pdb pertumbuhan apbn pajak defisit ekspor impor tarif",
+}
+FINANSIAL_TAG_LABEL = {"saham": "Saham", "rupiah": "Rupiah & Valas", "kripto": "Kripto", "perbankan": "Perbankan",
+                       "emas": "Emas & Komoditas", "makro": "Ekonomi Makro"}
+
+RETENTION_SECONDS = int(os.environ.get("RHEUS_RETENTION_SECONDS", str(48 * 3600)))  # memori sementara: 2 hari
 
 # ---------------------------------------------------------------- Berita Viral
 PLATFORMS = ["tiktok", "instagram", "x", "youtube", "facebook"]

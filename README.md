@@ -2,35 +2,61 @@
 
 <img src="web/icon-192.png" alt="Logo SiLengkap" width="88">
 
-**Transkripsi video, berita, analisa Bitcoin, radio, dan gim dalam satu aplikasi.**
+**Transkripsi video, berita terverifikasi, analisa Bitcoin, radio, dan gim dalam satu aplikasi Android.**
+Prinsip: **Fast · Accurate · Cool**.
 
-SiLengkap terdiri dari dua bagian:
-
-| Bagian | Isi | Hosting |
+| Bagian | Isi | Berjalan di |
 |---|---|---|
-| **Aplikasi SiLengkap** (`web/`, `android/`) | Tampilan: menu, berita, radio, gim | APK Android atau situs statis |
-| **RheusInterface** (`rheus/`) | "Otak": mengambil & mengolah semua data, machine learning, TranscriptBot | **Server terpisah** (Docker) |
+| **Aplikasi SiLengkap** (`android/` + tampilan `web/`) | Menu, tampilan, **TranscriptBot 3** (di HP) | HP Android (APK) |
+| **Rheus Cloud** (`rheus/` + `.github/workflows/rheus-cloud.yml`) | "Otak": mengumpulkan, memverifikasi, dan mempelajari berita; analisa Bitcoin; melatih model TranscriptBot | GitHub Actions, gratis, **tanpa server yang bisa tertidur** |
 
-Aplikasi **wajib online** karena semua data diolah RheusInterface. Satu-satunya pengecualian adalah menu **Gim**, yang berjalan sepenuhnya di perangkat.
+## ⚡ Arsitektur Rheus Cloud (kenapa sekarang cepat)
+
+Versi sebelumnya bergantung pada server gratis. Server itu tertidur, sehingga aplikasi "loading" lama, bahkan lebih dari 1 menit. Sekarang **tidak ada server yang perlu dibangunkan**:
+
+1. **Setiap ±30 menit**, GitHub Actions menjalankan `python -m rheus.cloud`. Proses ini mengambil puluhan sumber berita secara paralel, membuang hoaks, menggabungkan berita yang sama, belajar dari teks baru, lalu menghitung analisa Bitcoin.
+2. Hasilnya berupa file JSON kecil (beberapa KB). File itu diterbitkan ke branch `rheus-data` dan disajikan lewat **CDN** (raw.githubusercontent.com & jsDelivr).
+3. Aplikasi langsung **menampilkan salinan tersimpan seketika**, lalu mengunduh versi terbaru (±0,2–1 detik). Ada dua CDN; bila CDN pertama lambat, aplikasi otomatis memakai yang kedua.
+
+**Memori sementara 48 jam:** Rheus menyimpan berita di `memory.json.gz`. Setiap putaran, berita baru ditambahkan dan **berita yang berumur lebih dari 48 jam dihapus otomatis**. Cara ini lebih efisien daripada menghapus semuanya setiap 2 hari: data tetap segar setiap 30 menit, tetapi tidak pernah lebih tua dari 2 hari. Klaim hoaks disimpan 30 hari. Otak ML (`brain.pkl`) disimpan permanen, jadi terus belajar.
+
+> **Penting:** jadwal otomatis GitHub hanya berjalan dari branch utama (`main`). Merge PR ini agar Rheus Cloud berjalan sendiri setiap 30 menit. Sebelum itu, workflow **Rheus Cloud** bisa dijalankan manual dari tab Actions.
+
+## ✅ Akurat & bebas hoaks
+
+- **Daftar media kredibel** (Indonesia & AS): `rheus/rheus/sources.py`.
+- **Terverifikasi:** berita diberi lencana ✔ bila diliput **≥2 media kredibel** yang berbeda.
+- **Saring hoaks:** klaim yang sudah dibantah **TurnBackHoax (Mafindo)** dan **Cek Fakta Tempo** dicocokkan dengan MinHash LSH. Berita yang mengulang klaim hoaks dibuang, dan jumlahnya ditampilkan ("x hoaks disaring").
+- **Saring clickbait:** judul umpan klik tidak bisa menjadi headline hot.
+- **Headline hot hanya dari media kredibel.** Berita lain tetap tampil dengan label "Belum terverifikasi".
 
 ## Menu
 
 | Menu | Isi |
 |---|---|
-| 🎬 Transkripsi Video | Link YouTube → **transkrip lengkap yang sudah dirapikan** (titik, koma, huruf kapital, paragraf) + ringkasan. Bisa ditukar ke subtitle asli. |
-| ₿ Berita Kripto Hari Ini | 3 headline hot + berita terbaru berhalaman |
-| 📈 Prediksi Arah Bitcoin | Harga (USD & Rupiah), grafik 24j/7h/30h, arah, probabilitas, keadaan pasar, uji balik otomatis |
-| 📰 Berita Utama | **Nasional** dan **Internasional**. Internasional dibagi ke kategori Militer, Ekonomi, Hubungan Antarnegara, Geopolitik. |
-| 🔥 Berita Viral | Region **Indonesia / USA**, filter **media sosial** (TikTok, Instagram, X, YouTube, Facebook) dan **kategori** (makanan, selebriti & skandal, tren dance, hewan, olahraga, teknologi, sosial) |
-| 📻 Radio | Ratusan stasiun gratis Indonesia & USA dari direktori terbuka Radio Browser |
-| 🎮 Gim | Dino, Ular Tangga (lawan komputer / 2–4 pemain), Sudoku (3 tingkat, solusi tunggal), Minesweeper (3 tingkat) — **offline** |
-| ✨ Tanya Rheus (beranda) | Tanya jawab berbasis pencarian atas semua berita & analisa yang dikumpulkan Rheus |
+| 🎬 Transkripsi Video | Link YouTube → transkrip lengkap yang dirapikan + ringkasan. **Semua diproses di HP**, tanpa server. |
+| 💹 Berita Finansial | Saham/IHSG, rupiah & valas, kripto, perbankan, emas, makro, dengan filter tag |
+| 📈 Prediksi Arah Bitcoin | Harga **live** (diperbarui setiap 20 detik), grafik 24j/7h/30h, arah, probabilitas, uji balik |
+| 📰 Berita Utama | Nasional & Internasional (Militer, Ekonomi, Hubungan Antarnegara, Geopolitik) |
+| 🔥 Berita Viral | Indonesia / USA, per media sosial & kategori |
+| 📻 Radio | Stasiun gratis Indonesia & USA |
+| 🎮 Gim | Dino, Ular Tangga, Sudoku, Minesweeper (**offline**) |
+| ✨ Tanya Rheus | Pencarian BM25 **di HP** atas semua berita 48 jam terakhir |
+
+## 🎬 Transkripsi cepat (kenapa tidak macet lagi)
+
+Dulu prosesnya: HP membuka halaman YouTube (berat, ±1 MB), mengirim subtitle ke server yang mungkin sedang tidur, lalu menunggu. Proses itu bisa "macet di 25%". Sekarang:
+
+1. **Subtitle** diambil langsung dari endpoint player YouTube dengan 2 permintaan kecil (`YouTubeTranscript.kt`). Halaman video hanya dipakai sebagai cadangan. Setiap permintaan punya batas waktu (7 dtk sambung / 12 dtk baca), dan seluruh proses dibatasi 30 dtk, sehingga **tidak pernah macet tanpa pesan**.
+2. **TranscriptBot 3 berjalan di HP** (`web/transcriptbot.js`). Ini port JavaScript dari versi Python. Model ML tanda baca & huruf kapital dilatih Rheus Cloud dan dibundel di APK. Hasilnya **identik 100%** dengan versi Python (`eval/parity_tb3.py`). Video ±15 ribu kata selesai diolah dalam ±0,1–0,3 detik.
+3. Video yang pernah dibuka disimpan di cache, jadi membukanya lagi langsung selesai.
+
+Aplikasi menampilkan tahap proses dan stopwatch ("Selesai dalam x detik").
 
 ---
 
-## 🧠 RheusInterface 2
-
-Server Python (FastAPI) di folder `rheus/`. Ia dibangun dengan library open-source dari GitHub:
+## 🧠 Rheus
+Kode Python di folder `rheus/`. Ia dibangun dengan library open-source dari GitHub:
 
 | Library | Dipakai untuk |
 |---|---|
@@ -54,15 +80,17 @@ Server Python (FastAPI) di folder `rheus/`. Ia dibangun dengan library open-sour
 
 Akurasi diukur **prequential**: setiap contoh baru ditebak dulu, baru dipelajari. Jadi angka akurasinya jujur, dan riwayatnya bisa dilihat di `GET /v1/learn`. Otak disimpan berkala ke disk.
 
-> **Catatan jujur:** RheusInterface bukan LLM generatif seperti ChatGPT. Ia **prototipe** machine learning kecil yang berjalan di server gratis. "Tanya Rheus" adalah langkah pertama ke arah LLM: Rheus mencari potongan informasi paling relevan (BM25) dan menyusunnya menjadi jawaban beserta sumbernya. Ia belum mengarang kalimat sendiri.
+> **Catatan jujur:** Rheus bukan LLM generatif seperti ChatGPT. Ia **prototipe** machine learning kecil yang berjalan di server gratis. "Tanya Rheus" adalah langkah pertama ke arah LLM: Rheus mencari potongan informasi paling relevan (BM25) dan menyusunnya menjadi jawaban beserta sumbernya. Ia belum mengarang kalimat sendiri.
 
-### API
+### API (opsional)
+
+Server FastAPI (`rheus.app`) tetap tersedia untuk pengembangan. Aplikasi tidak lagi memerlukannya.
 
 | Endpoint | Isi |
 |---|---|
 | `GET /v1/health` | Status |
 | `GET /v1/news/utama` | Berita Utama (nasional, internasional + kategori) |
-| `GET /v1/news/kripto` | Berita Kripto |
+| `GET /v1/news/finansial` | Berita Finansial |
 | `GET /v1/news/viral?region=id\|us` | Berita Viral (platform & kategori) |
 | `GET /v1/btc?tf=24j\|7h\|30h` | Analisa Bitcoin + uji balik |
 | `GET /v1/radio?region=id\|us` | Stasiun radio |
@@ -71,7 +99,6 @@ Akurasi diukur **prequential**: setiap contoh baru ditebak dulu, baru dipelajari
 | `GET /v1/ask?q=…` | Tanya Rheus |
 | `GET /v1/learn` | Statistik pembelajaran |
 
-Server memperbarui berita dan analisa **di latar belakang setiap 15 menit**, sehingga aplikasi langsung menerima data siap pakai.
 
 ---
 
@@ -105,7 +132,7 @@ Skor kerapian adalah rata-rata dari tiga angka di sebelahnya. Versi 2.0 tidak pu
 
 **Ringkasan:** v3 ROUGE-L 45,6 vs v2 45,5. Hasilnya **setara**. Ringkasan berbasis pemilihan kalimat sudah dekat batas atas metodenya, jadi ringkasan tidak naik 5x.
 
-**Kecepatan RheusInterface 2 (server) vs 1.0 (diolah di HP)**
+**Kecepatan Rheus 2 (server) vs 1.0 (diolah di HP)**
 
 | | v1 di HP | v2 server | Peningkatan |
 |---|---|---|---|
@@ -125,33 +152,12 @@ Kenaikan besar di baris berita dan Bitcoin terjadi karena server **menyiapkan da
 
 **Keterbatasan**
 - **Kategori berita viral:** hanya diberikan bila yakin. Akibatnya ±60–70% berita masuk "Lainnya". Ini disengaja: lebih baik tidak berkategori daripada salah kategori.
-- **Transkripsi di versi web:** server cloud sering diblokir YouTube. APK tidak terpengaruh.
 
 ## 📲 APK Android
 
 Unduh **SiLengkap.apk** dari https://github.com/airputihsegarmantap-blip/Transkripsi-/releases/tag/apk-terbaru.
 
-Di APK, subtitle YouTube diambil langsung dari HP, karena YouTube sering memblokir IP server cloud. Subtitle itu lalu dikirim ke RheusInterface untuk dirapikan dan diringkas.
-
-## 🌐 Hosting (gratis)
-
-`render.yaml` mendefinisikan **dua layanan terpisah**:
-- `silengkap-rheus`: server RheusInterface (Docker).
-- `silengkap`: situs statis SiLengkap.
-
-Langkah-langkahnya:
-1. Daftar di https://render.com memakai akun GitHub.
-2. Klik **New → Blueprint**, pilih repo ini, lalu klik **Deploy**. Render membangun image RheusInterface, termasuk pelatihan awal dari Wikipedia Indonesia (±1–3 menit).
-3. Salin alamat server RheusInterface (mis. `https://silengkap-rheus.onrender.com`). Masukkan ke **web/config.js**, atau lewat aplikasi: **Menu → Pengaturan server → Tes → Simpan**.
-
-Alternatif lain:
-- **Hugging Face Spaces:** pilih SDK Docker, upload isi folder `rheus/`, port 8000.
-- **Koyeb:** pilih builder Dockerfile, root `rheus/`.
-
-Catatan paket gratis:
-- **Server tidur:** server tertidur setelah ±15 menit tanpa pengunjung. Permintaan pertama butuh ±1 menit untuk membangunkannya.
-- **Disk tidak permanen:** disk server gratis tidak menyimpan data selamanya, jadi setelah deploy ulang otak kembali ke hasil pelatihan awal, lalu belajar lagi.
-- **Transkripsi di versi web:** bisa diblokir YouTube. Atasi dengan `YT_PROXY_URL`, atau pakai APK.
+Setiap kali APK dibangun, model TranscriptBot terbaru diunduh dari Rheus Cloud dan dibundel ke dalam APK.
 
 ## Pengembangan
 
@@ -160,21 +166,25 @@ pip install -r rheus/requirements.txt pytest
 python -m pytest rheus/tests                     # uji otomatis
 cd rheus && python -m rheus.train --wiki-pages 2000   # pelatihan awal
 uvicorn rheus.app:app --reload                   # jalankan server (port 8000)
-python -m http.server -d web 8080                # jalankan tampilan web
+python -m rheus.cloud --out /tmp/v2              # satu putaran Rheus Cloud
+python -m rheus.export_js ../web/tb3-const.js    # perbarui konstanta TranscriptBot versi HP
 ```
 
 ## Struktur
 
 ```
-rheus/                 # RheusInterface (server terpisah)
-  rheus/app.py         #   API
+rheus/                 # Rheus
+  rheus/cloud.py       #   satu putaran Rheus Cloud (dipanggil GitHub Actions)
+  rheus/sources.py     #   media kredibel, cek fakta, clickbait
+  rheus/app.py         #   API (opsional)
   rheus/learn.py       #   machine learning online (River)
   rheus/transcriptbot.py
   rheus/news.py, btc.py, radio.py, knowledge.py, youtube.py, train.py
   tests/               #   uji otomatis
   Dockerfile
-web/                   # aplikasi SiLengkap (dipakai web & APK)
+web/                   # tampilan aplikasi (dibundel di APK)
   app.js, silengkap.css, config.js, games/
+  transcriptbot.js, tb3-const.js   # TranscriptBot 3 di HP
 android/               # pembungkus Android
 eval/                  # evaluasi & benchmark (+ versi lama di eval/baseline untuk pembanding)
 ```

@@ -1,9 +1,10 @@
-// SiLengkap — antarmuka utama. Semua data diolah oleh server RheusInterface (wajib online),
-// kecuali menu Gim yang berjalan offline di perangkat.
+// SiLengkap — aplikasi Android. Prinsip: Fast · Accurate · Cool.
+// Data: Rheus Cloud (JSON siap pakai via CDN, diperbarui ±30 menit). Transkripsi: TranscriptBot 3 di HP.
 "use strict";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nowSec = () => Date.now() / 1000;
 
 // ====================================================================== platform
 const Bridge = (window.Bridge = {
@@ -21,58 +22,55 @@ const Bridge = (window.Bridge = {
   emit(ev, data) { const fn = this._handlers[ev]; fn && fn(JSON.parse(data)); },
 });
 const isApp = typeof window.Native !== "undefined";
-
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
-
+let lastHaptic = 0;
+function haptic() { const t = Date.now(); if (isApp && t - lastHaptic > 60) { lastHaptic = t; try { Native.haptic(); } catch {} } }
 const Platform = {
-  open(url) { if (isApp) Native.openUrl(url); else window.open(url, "_blank", "noopener"); },
-  copy(text) {
-    if (isApp) { Native.copy(text); return; }
-    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast("Tersalin"), () => toast("Gagal menyalin"));
-  },
-  share(title, text) {
-    if (isApp) { Native.share(title, text); return; }
-    if (navigator.share) navigator.share({ title, text }).catch(() => {}); else Platform.copy(text);
-  },
+  open(url) { if (!url) return; if (isApp) Native.openUrl(url); else window.open(url, "_blank", "noopener"); },
+  copy(text) { if (isApp) Native.copy(text); else navigator.clipboard && navigator.clipboard.writeText(text).then(() => toast("Tersalin")); },
+  share(title, text) { if (isApp) Native.share(title, text); else Platform.copy(text); },
 };
+function withTimeout(p, ms, msg) {
+  let t;
+  return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t));
+}
 
-// ====================================================================== RheusInterface API
-const DEFAULT_RHEUS = (window.SILENGKAP_CONFIG && window.SILENGKAP_CONFIG.rheusUrl) || "https://silengkap-rheus.onrender.com";
-const Rheus = {
-  base() { return store.get("rheus-url", DEFAULT_RHEUS).replace(/\/+$/, ""); },
-  async req(path, opts = {}) {
-    if (navigator.onLine === false) throw new Error("Tidak ada koneksi internet. SiLengkap butuh internet untuk menu ini (kecuali Gim).");
-    let r;
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), opts.timeout || 90000);
-    try {
-      r = await fetch(this.base() + path, { ...opts, signal: ctrl.signal, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
-    } catch (e) {
-      throw new Error(e.name === "AbortError"
-        ? "RheusInterface terlalu lama merespons (server gratis mungkin sedang bangun dari tidur — coba lagi sebentar)."
-        : "Tidak bisa terhubung ke server RheusInterface. Periksa internet atau alamat server di Pengaturan.");
-    } finally { clearTimeout(to); }
-    let data = null;
-    try { data = await r.json(); } catch {}
-    if (!r.ok) throw new Error((data && data.detail) || `RheusInterface membalas HTTP ${r.status}.`);
+// ====================================================================== Rheus Cloud
+const CLOUD = (window.SILENGKAP_CONFIG && window.SILENGKAP_CONFIG.cloud) || [];
+const Cloud = {
+  mem: new Map(),
+  /** Ambil file JSON: tampilkan salinan tersimpan seketika, lalu segarkan dari CDN tercepat. */
+  async get(name, { fresh = false } = {}) {
+    const ver = this.manifest ? Math.floor(this.manifest.updatedAt) : Math.floor(nowSec() / 600);
+    const fetchOne = (base) => fetch(`${base}${name}.json?v=${ver}`, { cache: fresh ? "reload" : "default" })
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); });
+    // Mulai dari CDN pertama; bila belum menjawab dalam 1,5 detik, coba CDN kedua juga.
+    const attempts = CLOUD.map((base, i) => new Promise((res, rej) => setTimeout(() => fetchOne(base).then(res, rej), i * 1500)));
+    const data = await withTimeout(Promise.any(attempts), 15000, "Rheus Cloud lambat merespons. Periksa koneksi internet.")
+      .catch((e) => { throw new Error(e instanceof AggregateError ? "Tidak bisa terhubung ke Rheus Cloud. Periksa koneksi internet." : e.message); });
+    this.mem.set(name, data);
+    try { localStorage.setItem("rc:" + name, JSON.stringify(data)); } catch {}
     return data;
   },
-  get(path) { return this.req(path); },
-  post(path, body) { return this.req(path, { method: "POST", body: JSON.stringify(body) }); },
+  cached(name) {
+    if (this.mem.has(name)) return this.mem.get(name);
+    try { const raw = localStorage.getItem("rc:" + name); if (raw) { const d = JSON.parse(raw); this.mem.set(name, d); return d; } } catch {}
+    return null;
+  },
 };
 
 // ====================================================================== menu & state
 const MENU = [
-  { id: "transcribe", label: "Transkripsi Video", desc: "Link YouTube → transkrip rapi & ringkasan", icon: "ph-file-video" },
-  { id: "crypto", label: "Berita Kripto Hari Ini", desc: "Headline & berita pasar kripto", icon: "ph-currency-btc" },
-  { id: "btc", label: "Prediksi Arah Bitcoin", desc: "Harga, arah, dan probabilitas", icon: "ph-chart-line-up" },
-  { id: "utama", label: "Berita Utama", desc: "Nasional & internasional", icon: "ph-newspaper" },
-  { id: "viral", label: "Berita Viral", desc: "Per media sosial & kategori", icon: "ph-trend-up" },
-  { id: "radio", label: "Radio", desc: "Stasiun radio gratis", icon: "ph-radio" },
-  { id: "games", label: "Gim", desc: "Dino, Ular Tangga, Sudoku, Minesweeper", icon: "ph-game-controller" },
+  { id: "transcribe", label: "Transkripsi Video", desc: "YouTube → transkrip rapi & ringkasan", icon: "ph-waveform", hue: 255 },
+  { id: "finansial", label: "Berita Finansial", desc: "Saham, rupiah, kripto, ekonomi", icon: "ph-chart-bar", hue: 160 },
+  { id: "btc", label: "Prediksi Arah Bitcoin", desc: "Harga live, arah, probabilitas", icon: "ph-currency-btc", hue: 35 },
+  { id: "utama", label: "Berita Utama", desc: "Nasional & internasional", icon: "ph-newspaper", hue: 210 },
+  { id: "viral", label: "Berita Viral", desc: "Per media sosial & kategori", icon: "ph-fire", hue: 345 },
+  { id: "radio", label: "Radio", desc: "Stasiun radio gratis", icon: "ph-radio", hue: 290 },
+  { id: "games", label: "Gim", desc: "Dino, Ular Tangga, Sudoku, Minesweeper", icon: "ph-game-controller", hue: 100, offline: true },
 ];
 const GAMES = [
   { id: "dino", label: "Gim Dino", desc: "Lompat, hindari kaktus", icon: "ph-person-simple-run" },
@@ -80,40 +78,39 @@ const GAMES = [
   { id: "sudoku", label: "Sudoku", desc: "Mudah, sedang, sulit", icon: "ph-grid-nine" },
   { id: "minesweeper", label: "Minesweeper", desc: "Temukan semua ranjau", icon: "ph-bomb" },
 ];
-
 const state = {
   page: "home", game: null, gameInst: null, newsPage: 1,
-  data: {},       // kunci → {status, data, error}
-  t: { url: "", status: "idle", stage: "", pct: 0, data: null, error: null, ytError: false, view: "rapi" },
-  btcTf: "24j",
+  data: {},
+  t: { url: "", status: "idle", stage: 0, data: null, error: null, ytError: false, view: "rapi", started: 0, ms: 0 },
+  btcTf: "24j", live: null,
   utama: { tab: "nasional", cat: "all" },
+  fin: { tag: "all" },
   viral: { region: store.get("viral-region", "id"), platform: "all", cat: "all" },
   radio: { region: store.get("radio-region", "id"), q: "", playing: null, status: "idle" },
-  ask: { q: "", status: "idle", data: null, error: null },
+  ask: { q: "", status: "idle", data: null },
   best: +store.get("silengkap-dino-best", 0) || 0,
 };
 
-function go(page, sub) { location.hash = page === "home" ? "" : "#/" + page + (sub ? "/" + sub : ""); }
+function go(page, sub) { haptic(); location.hash = page === "home" ? "" : "#/" + page + (sub ? "/" + sub : ""); }
 function parseHash() {
   const m = location.hash.match(/^#\/(\w+)(?:\/(\w+))?/) || [];
-  const page = MENU.some((x) => x.id === m[1]) ? m[1] : "home";
-  return { page, sub: m[2] || null };
+  return { page: MENU.some((x) => x.id === m[1]) ? m[1] : "home", sub: m[2] || null };
 }
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg; t.classList.add("show");
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2000);
 }
-function setMenu(open) { $("drawer").classList.toggle("open", open); $("scrim").classList.toggle("open", open); }
+function setMenu(open) { $("drawer").classList.toggle("open", open); $("scrim").classList.toggle("open", open); if (open) haptic(); }
 
-/** Ambil data dari Rheus satu kali per kunci; render ulang saat selesai. */
-function load(key, path, force = false) {
-  const d = state.data[key] || (state.data[key] = { status: "idle" });
+/** Muat file Rheus Cloud untuk sebuah tampilan: salinan tersimpan dulu, lalu versi terbaru. */
+function load(name, force = false) {
+  const d = state.data[name] || (state.data[name] = { status: "idle", data: Cloud.cached(name) });
   if (!force && (d.status === "loading" || d.status === "done")) return d;
   d.status = "loading";
-  Rheus.get(path + (force ? (path.includes("?") ? "&" : "?") + "refresh=1" : "")).then(
-    (data) => { Object.assign(d, { status: "done", data, error: null }); render(); },
-    (e) => { Object.assign(d, { status: d.data ? "done" : "error", error: e.message }); if (d.data) toast(e.message); render(); },
+  Cloud.get(name, { fresh: force }).then(
+    (data) => { Object.assign(d, { status: "done", data, error: null }); if (force) toast("Data terbaru dimuat ✓"); softRender(); },
+    (e) => { Object.assign(d, { status: d.data ? "done" : "error", error: e.message }); if (d.data && force) toast("Offline — menampilkan data tersimpan"); softRender(); },
   );
   return d;
 }
@@ -124,45 +121,49 @@ function renderChrome() {
   const tag = $("curTag");
   tag.classList.toggle("hidden", !cur);
   if (cur) tag.innerHTML = `<i class="ph ${cur.icon}"></i>${esc(cur.label)}`;
-  $("drawerItems").innerHTML = MENU.map((m) => `
-    <button class="drawer-item ${m.id === state.page ? "active" : ""}" data-go="${m.id}">
-      <i class="ph ${m.icon}"></i>
+  $("drawerItems").innerHTML = MENU.map((m, i) => `
+    <button class="drawer-item ${m.id === state.page ? "active" : ""}" data-go="${m.id}" style="--i:${i}">
+      <span class="tile" style="--h:${m.hue}"><i class="ph ${m.icon}"></i></span>
       <span style="display:flex;flex-direction:column"><span style="font-size:14px;font-weight:500">${esc(m.label)}</span><span class="text-muted" style="font-size:12px">${esc(m.desc)}</span></span>
+      ${m.offline ? `<span class="tag tag-neutral" style="margin-left:auto;font-size:10px">offline</span>` : ""}
     </button>`).join("");
 }
-
+let lastPage = null;
 function render() {
   renderChrome();
   const v = $("view");
   if (state.page !== "games" || !state.game) { if (state.gameInst) { state.gameInst.destroy(); state.gameInst = null; } }
-  switch (state.page) {
-    case "transcribe": v.innerHTML = viewTranscribe(); break;
-    case "crypto": v.innerHTML = viewKripto(); break;
-    case "btc": v.innerHTML = viewBtc(); break;
-    case "utama": v.innerHTML = viewUtama(); break;
-    case "viral": v.innerHTML = viewViral(); break;
-    case "radio": v.innerHTML = viewRadio(); break;
-    case "games": if (!state.gameInst) { v.innerHTML = viewGames(); mountGame(); } break;
-    default: v.innerHTML = viewHome();
-  }
+  const html = {
+    transcribe: viewTranscribe, finansial: viewFinansial, btc: viewBtc, utama: viewUtama,
+    viral: viewViral, radio: viewRadio,
+  }[state.page];
+  if (state.page === "games") { if (!state.gameInst) { v.innerHTML = viewGames(); mountGame(); } }
+  else v.innerHTML = html ? html() : viewHome();
+  const changed = lastPage !== state.page + (state.game || "");
+  v.classList.toggle("enter", changed);
+  if (changed) { void v.offsetWidth; lastPage = state.page + (state.game || ""); }
   renderPlayer();
 }
+/** Render ulang tanpa animasi masuk (untuk pembaruan data). */
+function softRender() { lastPage = state.page + (state.game || ""); const v = $("view"); v.classList.remove("enter"); render(); }
 
-const loadingCard = (msg) => `<p class="text-muted" style="margin:0;font-size:13px"><i class="ph ph-circle-notch" style="animation:slspin 1s linear infinite"></i> ${esc(msg)}</p>`;
-function errorCard(msg, action, arg = "") {
-  return `<div class="card elev-sm" style="padding:16px;gap:10px;max-width:760px">
-    <div style="display:flex;gap:10px;align-items:flex-start"><i class="ph ph-wifi-slash" style="color:var(--color-accent-300);font-size:20px"></i><span style="font-size:14px;text-wrap:pretty">${esc(msg)}</span></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" data-action="${action}" data-arg="${esc(arg)}"><i class="ph ph-arrows-clockwise"></i>Coba lagi</button>
-    <button class="btn btn-ghost" data-action="openSettings"><i class="ph ph-gear"></i>Pengaturan server</button></div>
-  </div>`;
+const loadingLine = (msg) => `<p class="text-muted loading-line"><i class="ph ph-circle-notch spin"></i> ${esc(msg)}</p>`;
+function errorCard(msg, action) {
+  return `<div class="card elev-sm reveal" style="gap:10px;max-width:760px">
+    <div style="display:flex;gap:10px;align-items:flex-start"><i class="ph ph-wifi-slash" style="color:var(--color-accent-300);font-size:22px"></i><span style="font-size:14px;text-wrap:pretty">${esc(msg)}</span></div>
+    <div><button class="btn btn-secondary" data-action="${action}"><i class="ph ph-arrows-clockwise"></i>Coba lagi</button></div></div>`;
 }
-const skeletonNews = () => `
-  <div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))">
-    ${[0, 1, 2].map(() => `<div class="card elev-md" style="min-height:170px;gap:12px"><div class="skeleton" style="height:20px;width:30%"></div><div class="skeleton" style="height:18px"></div><div class="skeleton" style="height:18px;width:80%"></div><div class="skeleton" style="height:12px;width:40%;margin-top:auto"></div></div>`).join("")}
-  </div>`;
+const skeletonNews = () => `<div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))">${[0, 1, 2].map(() =>
+  `<div class="card elev-md" style="min-height:170px;gap:12px"><div class="skeleton" style="height:20px;width:30%"></div><div class="skeleton" style="height:18px"></div><div class="skeleton" style="height:18px;width:80%"></div><div class="skeleton" style="height:12px;width:40%;margin-top:auto"></div></div>`).join("")}</div>`;
 function agoText(ts) {
-  const m = Math.round((Date.now() / 1000 - ts) / 60);
-  return m < 1 ? "baru saja" : m < 60 ? `${m} menit lalu` : `${Math.round(m / 60)} jam lalu`;
+  const m = Math.round((nowSec() - ts) / 60);
+  return m < 1 ? "baru saja" : m < 60 ? `${m} mnt lalu` : m < 1440 ? `${Math.round(m / 60)} jam lalu` : `${Math.round(m / 1440)} hari lalu`;
+}
+function liveChip(d) {
+  if (!d || !d.data) return "";
+  const age = nowSec() - d.data.updatedAt;
+  const fresh = age < 3 * 3600;
+  return `<span class="live ${fresh ? "" : "stale"}"><span class="dot"></span>${fresh ? "LIVE" : "TERSIMPAN"} · ${esc(agoText(d.data.updatedAt))}${d.status === "loading" ? ' <i class="ph ph-circle-notch spin"></i>' : ""}</span>`;
 }
 function chips(name, items, active) {
   return `<div class="chips" role="radiogroup">${items.map((it) => `<button class="chip ${it.id === active ? "on" : ""}" data-chip="${name}" data-val="${esc(it.id)}">${it.icon ? `<i class="ph ${it.icon}"></i>` : ""}${esc(it.label)}${it.count !== undefined ? `<span class="chip-n">${it.count}</span>` : ""}</button>`).join("")}</div>`;
@@ -171,96 +172,145 @@ function chips(name, items, active) {
 // ---------------------------------------------------------------------- beranda + Tanya Rheus
 function viewHome() {
   const a = state.ask;
+  const man = Cloud.cached("manifest");
   return `
-  <section style="display:flex;flex-direction:column;gap:28px;padding-top:5vh">
-    <div style="display:flex;flex-direction:column;gap:18px;max-width:620px">
+  <section class="home">
+    <div class="hero">
       <span class="logo-lg">SL</span>
-      <h1 style="font-size:clamp(34px,6vw,52px);margin:0">SiLengkap</h1>
-      <p class="text-muted" style="font-size:16px;margin:0;text-wrap:pretty">Transkripsi video, berita, analisa Bitcoin, radio, dan gim dalam satu aplikasi. Buka menu di kanan atas untuk mulai.</p>
-      <div><button class="btn btn-primary" data-action="openMenu"><i class="ph ph-list"></i>Buka menu</button></div>
+      <div><h1>SiLengkap</h1>
+      <p class="text-muted">Transkripsi video, berita terverifikasi, analisa Bitcoin, radio, dan gim — ditenagai <b class="grad-text">Rheus</b>.</p></div>
     </div>
-    <div class="card elev-md" style="max-width:760px;gap:12px;background:linear-gradient(160deg, var(--color-accent-900), var(--color-surface) 70%)">
-      <div style="display:flex;align-items:center;gap:8px"><i class="ph ph-sparkle" style="color:var(--color-accent);font-size:18px"></i><span class="card-kicker">Tanya Rheus</span><span class="card-meta" style="margin-left:auto">prototipe · berbasis pencarian</span></div>
-      <form id="askForm" style="display:flex;gap:8px;flex-wrap:wrap">
-        <input id="askQ" class="input" style="flex:1;min-width:200px" placeholder="Contoh: berapa harga bitcoin? / berita viral makanan" value="${esc(a.q)}" autocomplete="off">
-        <button class="btn btn-primary" type="submit" ${a.status === "loading" ? "disabled" : ""}><i class="ph ph-paper-plane-tilt"></i>Tanya</button>
+    ${man ? `<button class="card elev-sm status-strip reveal" data-action="openStatus" style="--i:1">
+      <span class="live"><span class="dot"></span>Rheus Cloud</span>
+      <span class="card-meta">Diperbarui ${esc(agoText(man.updatedAt))} · ${Object.values(man.stories || {}).reduce((a, b) => a + (b || 0), 0)} cerita · ${man.hoaxClaims || 0} klaim hoaks dipantau</span>
+      <i class="ph ph-caret-right" style="margin-left:auto;color:var(--color-neutral-500)"></i></button>` : ""}
+    <div class="card elev-md ask-card reveal" style="--i:2">
+      <div style="display:flex;align-items:center;gap:8px"><i class="ph-fill ph-sparkle" style="color:var(--color-accent);font-size:18px"></i><span class="card-kicker">Tanya Rheus</span><span class="card-meta" style="margin-left:auto">dari ${(Cloud.cached("knowledge") || { docs: [] }).docs.length || "—"} info 48 jam terakhir</span></div>
+      <form id="askForm" style="display:flex;gap:8px">
+        <input id="askQ" class="input" style="flex:1;min-width:0" placeholder="Harga bitcoin? Berita viral kuliner?" value="${esc(a.q)}" autocomplete="off">
+        <button class="btn btn-primary btn-icon" type="submit" aria-label="Tanya"><i class="ph ph-paper-plane-tilt"></i></button>
       </form>
-      ${a.status === "loading" ? loadingCard("Rheus sedang mencari…") : ""}
-      ${a.status === "error" ? `<p class="card-body">${esc(a.error)}</p>` : ""}
-      ${a.data ? `<p class="card-body" style="color:var(--color-text);font-size:15px">${esc(a.data.answer)}</p>
-        ${a.data.sources.length ? `<div style="display:flex;flex-direction:column;gap:6px">${a.data.sources.map((s) => `<a href="#" data-open="${esc(s.link)}" class="card-meta" style="color:var(--color-accent-300)"><i class="ph ph-link"></i>${esc(s.title)} · ${esc(s.source)}</a>`).join("")}</div>` : ""}` : ""}
+      ${a.status === "loading" ? loadingLine("Rheus mencari…") : ""}
+      ${a.data ? `<p class="answer">${esc(a.data.answer)}</p>
+        ${a.data.sources.length ? `<div style="display:flex;flex-direction:column;gap:6px">${a.data.sources.map((s) => `<a href="#" data-open="${esc(s.l)}" class="src-link">${s.v ? '<i class="ph-fill ph-seal-check" style="color:var(--color-up)"></i>' : '<i class="ph ph-link"></i>'}${esc(s.t)} · ${esc(s.s)}</a>`).join("")}</div>` : ""}` : ""}
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;max-width:900px">
-      ${MENU.map((m) => `<button class="card elev-sm menu-card hoverable" data-go="${m.id}"><i class="ph ${m.icon}"></i><span style="font-size:14px">${esc(m.label)}</span></button>`).join("")}
+    <div class="menu-grid">
+      ${MENU.map((m, i) => `<button class="menu-tile reveal" data-go="${m.id}" style="--i:${i + 3};--h:${m.hue}">
+        <span class="tile"><i class="ph ${m.icon}"></i></span><span class="mt-label">${esc(m.label)}</span><span class="mt-desc">${esc(m.desc)}</span></button>`).join("")}
     </div>
   </section>`;
+}
+
+// Tanya Rheus di HP: pencarian BM25 atas knowledge.json (berita 48 jam terakhir).
+const SYN = { makanan: ["kuliner", "resep", "food"], kuliner: ["makanan", "food"], artis: ["selebriti", "seleb", "celebrity"], perang: ["militer", "serangan"],
+  militer: ["tentara", "pasukan"], ekonomi: ["inflasi", "tarif"], kripto: ["bitcoin", "crypto"], bitcoin: ["btc", "kripto"], saham: ["ihsg", "emiten"], bola: ["timnas", "sepak"] };
+const ASK_STOP = new Set("apa yang dan di ke dari untuk dengan ini itu ada berita terbaru hari kabar soal tentang info bagaimana kenapa siapa kapan berapa adalah the of what viral".split(" "));
+const tok = (t) => (t.toLowerCase().match(/[a-z0-9]+/g) || []).filter((w) => w.length > 2 && !ASK_STOP.has(w));
+let bm25 = null;
+function buildBM25(docs) {
+  const N = docs.length, tf = [], df = new Map(), len = [];
+  for (const d of docs) {
+    const t = tok(d.t + " " + d.x + " " + d.c), m = new Map();
+    for (const w of t) m.set(w, (m.get(w) || 0) + 1);
+    for (const w of m.keys()) df.set(w, (df.get(w) || 0) + 1);
+    tf.push(m); len.push(t.length);
+  }
+  const avg = len.reduce((a, b) => a + b, 0) / Math.max(1, N);
+  return { docs, tf, len, avg, idf: (w) => Math.log(1 + (N - (df.get(w) || 0) + 0.5) / ((df.get(w) || 0) + 0.5)) };
 }
 async function ask(q) {
   const a = state.ask;
   a.q = q;
   if (!q.trim()) return;
-  Object.assign(a, { status: "loading", error: null });
-  render();
-  try { a.data = await Rheus.get("/v1/ask?q=" + encodeURIComponent(q)); a.status = "done"; }
-  catch (e) { Object.assign(a, { status: "error", error: e.message }); }
-  render();
+  haptic();
+  a.status = "loading"; softRender();
+  const parts = [];
+  let sources = [];
+  try {
+    const kb = await Cloud.get("knowledge").catch(() => Cloud.cached("knowledge"));
+    if (/\b(bitcoin|btc|kripto|crypto)\b/i.test(q) && /\b(harga|berapa|naik|turun|prediksi|arah|price)\b/i.test(q)) {
+      const b = Cloud.cached("btc-24j") || (await Cloud.get("btc-24j").catch(() => null));
+      const price = state.live ? state.live.usd : b && b.price;
+      if (b) parts.push(`Harga Bitcoin sekarang sekitar ${fmtUsd(price)}. Untuk 24 jam ke depan model Rheus melihatnya ${{ up: "cenderung naik", down: "cenderung turun", side: "cenderung sideways" }[b.model.direction]} dengan keyakinan ${b.model.confidence} (naik ${pct(b.model.probs.up)}, turun ${pct(b.model.probs.down)}). Bukan saran keuangan.`);
+    }
+    if (kb && kb.docs.length) {
+      if (!bm25 || bm25.docs !== kb.docs) bm25 = buildBM25(kb.docs);
+      let qt = tok(q);
+      qt = qt.concat(...qt.map((w) => SYN[w] || []));
+      const scored = bm25.docs.map((d, i) => {
+        let s = 0;
+        for (const w of qt) { const f = bm25.tf[i].get(w); if (f) s += bm25.idf(w) * (f * 2.5) / (f + 1.5 * (0.25 + 0.75 * bm25.len[i] / bm25.avg)); }
+        if (s) s *= (1 + 0.3 * (nowSec() - d.ts < 86400)) * (1 + 0.15 * d.v);
+        return [s, d];
+      }).filter(([s]) => s > 0).sort((x, y) => y[0] - x[0]).slice(0, 4).map(([, d]) => d);
+      sources = scored;
+      if (scored.length) {
+        const top = scored[0];
+        parts.push(`Yang paling relevan: "${top.t}" (${top.s}, ${agoText(top.ts)})${top.v ? " — terverifikasi beberapa media kredibel" : ""}.`);
+        if (scored.length > 1) parts.push("Terkait: " + scored.slice(1, 3).map((d) => `"${d.t}"`).join("; ") + ".");
+      }
+    }
+    if (!parts.length) parts.push("Rheus belum menemukan informasi yang cocok dari berita 48 jam terakhir. Coba kata kunci lain.");
+  } catch (e) { parts.push(e.message); }
+  Object.assign(a, { status: "done", data: { answer: parts.join(" "), sources } });
+  softRender();
 }
 
-// ---------------------------------------------------------------------- transkripsi
+// ---------------------------------------------------------------------- transkripsi (di HP)
 const YT_RE = /^(https?:\/\/)?(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//i;
-const fmtTime = (sec) => { sec = Math.floor(sec || 0); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = String(sec % 60).padStart(2, "0"); return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`; };
-
+const fmtTime = (s) => (window.TranscriptBot ? TranscriptBot.fmtTime(s) : String(Math.floor(s)));
+const STAGES = ["Menghubungi YouTube", "Mengambil subtitle", "TranscriptBot merapikan", "Selesai"];
+let modelReady = null;
+function loadModel() {
+  if (modelReady) return modelReady;
+  modelReady = Promise.all([
+    fetch("model/punct.bin").then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null),
+    fetch("model/case.json").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]).then(([bin, caseMap]) => { if (bin) TranscriptBot.load({ punct: new Float32Array(bin), caseMap: caseMap || {} }); return !!bin; });
+  return modelReady;
+}
 function viewTranscribe() {
   const t = state.t, d = t.data;
   const tb = d && d.transcriptbot, sum = tb && tb.summary;
   const paragraphs = !d ? [] : t.view === "rapi" ? tb.clean.paragraphs : groupSegments(d.segments);
+  const recent = JSON.parse(store.get("tr-recent", "[]"));
   return `
   <section class="section">
-    <div><h2 style="margin:0 0 6px">Transkripsi Video</h2><p class="text-muted" style="margin:0">Tempel link YouTube, lalu SiLengkap membuat transkripsi lengkap yang rapi dan ringkasannya.</p></div>
-    <div class="card elev-sm" style="padding:16px;gap:10px;max-width:760px">
-      <div class="field"><label for="yt">Link YouTube</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="position:relative;flex:1;min-width:220px">
-            <i class="ph ph-youtube-logo" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-neutral-500);font-size:17px"></i>
-            <input id="yt" class="input" style="padding-left:34px" type="url" inputmode="url" autocomplete="off" placeholder="https://www.youtube.com/watch?v=..." value="${esc(t.url)}">
-          </div>
-          <button id="ytGo" class="btn btn-primary" data-action="startTranscribe" ${!t.url.trim() || t.status === "loading" ? "disabled" : ""}><i class="ph ph-waveform"></i>Proses</button>
-        </div>
+    <div class="page-head"><h2>Transkripsi Video</h2><p class="text-muted">Subtitle diambil langsung dari HP, lalu dirapikan & diringkas TranscriptBot ${esc(window.TranscriptBot ? TranscriptBot.VERSION : "")} — di perangkatmu, tanpa server.</p></div>
+    <div class="card elev-sm" style="gap:10px;max-width:760px">
+      <div style="display:flex;gap:8px">
+        <div class="input-wrap"><i class="ph ph-youtube-logo"></i><input id="yt" class="input" type="url" inputmode="url" autocomplete="off" placeholder="Tempel link YouTube…" value="${esc(t.url)}"></div>
+        <button id="ytGo" class="btn btn-primary" data-action="startTranscribe" ${!t.url.trim() || t.status === "loading" ? "disabled" : ""}><i class="ph-fill ph-lightning"></i>Proses</button>
       </div>
       ${t.ytError ? `<span style="font-size:12px;color:var(--color-accent-300)">Masukkan link YouTube yang valid (youtube.com atau youtu.be).</span>` : ""}
-      <div style="display:flex;gap:8px;align-items:center;font-size:12px" class="text-muted"><span>Contoh:</span><button class="btn btn-ghost" style="font-size:12px" data-action="useSample">youtu.be/dQw4w9WgXcQ</button></div>
+      ${recent.length && t.status !== "loading" ? `<div class="chips">${recent.map((r) => `<button class="chip" data-recent="${esc(r.id)}"><i class="ph ph-clock-counter-clockwise"></i>${esc((r.title || r.id).slice(0, 34))}</button>`).join("")}</div>` : ""}
     </div>
     ${t.status === "loading" ? `
-    <div class="card elev-sm" style="padding:16px;max-width:760px;gap:10px">
-      <div style="display:flex;align-items:center;gap:10px;font-size:14px"><i class="ph ph-circle-notch" style="animation:slspin 1s linear infinite;color:var(--color-accent)"></i>${esc(t.stage)}<span class="text-muted" style="margin-left:auto">${t.pct}%</span></div>
-      <div style="height:4px;border-radius:4px;background:var(--color-neutral-800);overflow:hidden"><div style="height:100%;background:var(--color-accent);width:${t.pct}%;transition:width .3s"></div></div>
+    <div class="card elev-sm stages" style="max-width:760px">
+      ${STAGES.slice(0, 3).map((s, i) => `<div class="stage ${i < t.stage ? "done" : i === t.stage ? "now" : ""}"><span class="sdot">${i < t.stage ? '<i class="ph-bold ph-check"></i>' : i + 1}</span>${s}${i === t.stage ? '<i class="ph ph-circle-notch spin" style="margin-left:auto"></i>' : ""}</div>`).join("")}
+      <span class="card-meta" id="trTimer">0,0 dtk</span>
     </div>` : ""}
     ${t.status === "error" ? errorCard(t.error, "startTranscribe") : ""}
     ${d ? `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start">
-      <div class="card elev-sm" style="padding:16px;gap:12px">
+    <div class="done-banner reveal"><i class="ph-fill ph-lightning"></i>Selesai dalam ${(t.ms / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1 })} detik · ${esc(fmtTime(d.duration))} video · ${tb.model ? "model ML aktif" : "mode cadangan"}</div>
+    <div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start">
+      <div class="card elev-md reveal" style="gap:12px;--i:1">
+        <div style="display:flex;align-items:center;gap:8px"><span class="card-kicker">Ringkasan</span>
+          <button class="btn btn-ghost btn-icon" style="margin-left:auto" data-action="copySummary" aria-label="Salin"><i class="ph ph-copy"></i></button>
+          <button class="btn btn-ghost btn-icon" data-action="shareSummary" aria-label="Bagikan"><i class="ph ph-share-network"></i></button></div>
+        <div class="card-title">${esc(d.title || "Video YouTube")}</div>
+        <p class="card-body" style="font-size:14px">${esc(sum.short)}</p>
+        <div style="display:flex;flex-direction:column;gap:8px">${sum.points.concat(sum.details).map((p) => `<div class="point"><i class="ph-bold ph-check"></i>
+          <span>${p.label ? `<b>${esc(p.label)}:</b> ` : ""}${esc(p.text)} <button class="ts-link inline" data-seek="${Math.floor(p.start)}">${fmtTime(p.start)}</button></span></div>`).join("")}</div>
+        ${sum.conclusion && !sum.isList ? `<p class="card-body"><b style="color:var(--color-text);font-weight:500">Kesimpulan:</b> ${esc(sum.conclusion)}</p>` : ""}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${sum.keywords.slice(0, 5).map((k, i) => `<span class="tag ${i === 0 ? "tag-accent" : "tag-neutral"}">${esc(k)}</span>`).join("")}</div>
+      </div>
+      <div class="card elev-sm reveal" style="gap:12px;--i:2">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="card-kicker">Transkripsi lengkap</span>
           <div class="seg" style="margin-left:auto"><label class="seg-opt ${t.view === "rapi" ? "on" : ""}"><input type="radio" name="tview" value="rapi">Rapi</label><label class="seg-opt ${t.view === "asli" ? "on" : ""}"><input type="radio" name="tview" value="asli">Asli</label></div>
           <button class="btn btn-ghost btn-icon" data-action="copyTranscript" aria-label="Salin transkrip"><i class="ph ph-copy"></i></button></div>
-        <span class="card-meta">${esc(fmtTime(d.duration))} · ${esc(langLabel(d))} · ${t.view === "rapi" ? `dirapikan TranscriptBot ${esc(tb.version)}` : "subtitle asli YouTube"}</span>
-        <div style="display:flex;flex-direction:column;gap:14px;max-height:520px;overflow:auto;padding-right:4px">
-          ${paragraphs.map((g) => `<div style="display:grid;grid-template-columns:48px 1fr;gap:10px;font-size:14px;line-height:1.65">
-              <button class="ts-link" data-seek="${Math.floor(g.start)}">${fmtTime(g.start)}</button><span style="text-wrap:pretty">${esc(g.text)}</span></div>`).join("")}
-        </div>
-      </div>
-      <div class="card elev-md" style="padding:16px;gap:12px">
-        <div style="display:flex;align-items:center;gap:8px"><span class="card-kicker">Ringkasan</span>
-          <button class="btn btn-ghost" data-action="copySummary" style="font-size:12px;margin-left:auto"><i class="ph ph-copy"></i>Salin</button>
-          <button class="btn btn-ghost btn-icon" data-action="shareSummary" aria-label="Bagikan"><i class="ph ph-share-network"></i></button></div>
-        <div class="card-title">${esc(d.title || "Video YouTube")}</div>
-        <p class="card-body" style="font-size:14px;text-wrap:pretty">${esc(sum.short)}</p>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          ${sum.points.concat(sum.details).map((p) => `<div style="display:flex;gap:10px;font-size:14px"><i class="ph ph-check" style="color:var(--color-accent);padding-top:3px"></i>
-            <span>${p.label ? `<b style="font-weight:500">${esc(p.label)}:</b> ` : ""}${esc(p.text)} <button class="ts-link" style="display:inline;padding:0 0 0 4px" data-seek="${Math.floor(p.start)}">${fmtTime(p.start)}</button></span></div>`).join("")}
-        </div>
-        ${sum.conclusion && !sum.isList ? `<p class="card-body" style="font-size:14px"><b style="color:var(--color-text);font-weight:500">Kesimpulan:</b> ${esc(sum.conclusion)}</p>` : ""}
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${sum.keywords.slice(0, 5).map((k, i) => `<span class="tag ${i === 0 ? "tag-accent" : "tag-neutral"}">${esc(k)}</span>`).join("")}</div>
-        <span class="card-meta"><i class="ph ph-cpu"></i>TranscriptBot ${esc(tb.version)} di RheusInterface · ${esc(d.processMs)} ms</span>
+        <span class="card-meta">${esc(langLabel(d))} · ${t.view === "rapi" ? "titik, koma & huruf kapital oleh model ML Rheus" : "subtitle asli YouTube"}</span>
+        <div class="transcript">${paragraphs.map((g) => `<div class="para"><button class="ts-link" data-seek="${Math.floor(g.start)}">${fmtTime(g.start)}</button><span>${esc(g.text)}</span></div>`).join("")}</div>
       </div>
     </div>` : ""}
   </section>`;
@@ -268,53 +318,74 @@ function viewTranscribe() {
 function groupSegments(segs) {
   const out = [];
   let cur = null;
-  for (const s of segs || []) {
-    if (!cur || s.start - cur.start > 25) { cur = { start: s.start, text: s.text }; out.push(cur); } else cur.text += " " + s.text;
-  }
+  for (const s of segs || []) { if (!cur || s.start - cur.start > 25) { cur = { start: s.start, text: s.text }; out.push(cur); } else cur.text += " " + s.text; }
   return out;
 }
-const langLabel = (d) => d.source === "terjemahan" ? "Terjemahan ke Indonesia" : (d.language === "id" || d.language === "in") ? "Bahasa Indonesia" : `Bahasa ${String(d.language || "").toUpperCase()}`;
-
-async function startTranscribe() {
-  const t = state.t, url = t.url.trim();
-  if (!YT_RE.test(url)) { t.ytError = true; render(); return; }
-  Object.assign(t, { ytError: false, status: "loading", stage: "Menghubungi RheusInterface…", pct: 8, error: null, data: null });
-  render();
-  const stage = (s, p) => { t.stage = s; t.pct = p; if (state.page === "transcribe") render(); };
+const langLabel = (d) => (d.source === "terjemahan" ? "Terjemahan ke Indonesia" : d.language === "id" || d.language === "in" ? "Bahasa Indonesia" : `Bahasa ${String(d.language || "").toUpperCase()}`);
+let trTimer = null;
+async function startTranscribe(urlArg) {
+  const t = state.t;
+  const url = (urlArg || t.url).trim();
+  t.url = url;
+  if (!YT_RE.test(url) && !/^[A-Za-z0-9_-]{11}$/.test(url)) { t.ytError = true; softRender(); return; }
+  haptic();
+  Object.assign(t, { ytError: false, status: "loading", stage: 0, error: null, data: null, started: performance.now() });
+  softRender();
+  clearInterval(trTimer);
+  trTimer = setInterval(() => { const el = $("trTimer"); if (el) el.textContent = ((performance.now() - t.started) / 1000).toLocaleString("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + " dtk"; }, 100);
+  const stage = (i) => { t.stage = i; if (state.page === "transcribe") softRender(); };
   try {
-    let data;
-    if (isApp) {
-      // Di HP, subtitle diambil langsung dari YouTube (tidak diblokir), lalu dirapikan Rheus.
-      stage("Mengambil subtitle dari YouTube…", 25);
-      const raw = JSON.parse(await Bridge.call("getTranscript", url));
-      stage("TranscriptBot merapikan transkrip & meringkas…", 65);
-      data = await Rheus.post("/v1/transcript/process", raw);
-    } else {
-      stage("RheusInterface mengambil subtitle & TranscriptBot merapikan…", 45);
-      data = await Rheus.post("/v1/transcript", { url });
-    }
-    Object.assign(t, { status: "done", data, pct: 100 });
+    const modelP = loadModel();
+    stage(1);
+    const raw = isApp
+      ? JSON.parse(await withTimeout(Bridge.call("getTranscript", url), 30000, "YouTube tidak merespons dalam 30 detik. Periksa koneksi lalu coba lagi."))
+      : await withTimeout(window.__mockTranscript(url), 30000, "Waktu habis.");
+    stage(2);
+    await modelP;
+    await new Promise((r) => setTimeout(r, 16)); // beri kesempatan UI menggambar tahap ini
+    const tb = TranscriptBot.process(raw.segments, raw.title || "");
+    const last = raw.segments[raw.segments.length - 1] || { start: 0, duration: 0 };
+    const data = { ...raw, duration: (last.start || 0) + (last.duration || 0), transcriptbot: tb };
+    t.ms = performance.now() - t.started;
+    Object.assign(t, { status: "done", data, stage: 3 });
+    const recent = JSON.parse(store.get("tr-recent", "[]")).filter((r) => r.id !== raw.video_id);
+    recent.unshift({ id: raw.video_id, title: raw.title });
+    store.set("tr-recent", JSON.stringify(recent.slice(0, 4)));
+    haptic();
   } catch (e) {
-    Object.assign(t, { status: "error", error: e.message });
+    Object.assign(t, { status: "error", error: e.message || String(e) });
   }
-  if (state.page === "transcribe") render();
+  clearInterval(trTimer);
+  if (state.page === "transcribe") softRender();
 }
-function summaryText(d) { return [d.title || "Video YouTube", `https://www.youtube.com/watch?v=${d.video_id}`, "", d.transcriptbot.markdown].join("\n"); }
+const summaryText = (d) => [d.title || "Video YouTube", `https://www.youtube.com/watch?v=${d.video_id}`, "", d.transcriptbot.markdown].join("\n");
 
 // ---------------------------------------------------------------------- berita (umum)
 const PER_PAGE = 6;
 function newsHead(title, sub, d, refreshAction) {
-  return `<div class="head-row">
-    <div style="margin-right:auto"><h2>${esc(title)}</h2><p class="text-muted">${esc(sub)}</p></div>
-    ${d && d.data ? `<span class="card-meta"><i class="ph ph-clock"></i>Diperbarui ${esc(agoText(d.data.updatedAt))}${d.data.stale ? " · data lama" : ""}</span>` : ""}
-    <button class="btn btn-ghost btn-icon" data-action="${refreshAction}" aria-label="Perbarui"><i class="ph ph-arrows-clockwise" style="${d && d.status === "loading" ? "animation:slspin 1s linear infinite" : ""}"></i></button>
+  return `<div class="head-row page-head">
+    <div style="margin-right:auto;min-width:0"><h2>${esc(title)}</h2><p class="text-muted">${esc(sub)}</p></div>
+    <div style="display:flex;align-items:center;gap:6px">${liveChip(d)}
+    <button class="btn btn-ghost btn-icon" data-action="${refreshAction}" aria-label="Perbarui"><i class="ph ph-arrows-clockwise ${d && d.status === "loading" ? "spin" : ""}"></i></button></div>
   </div>`;
+}
+function trustBadge(s) {
+  if (s.verified) return `<span class="badge ok"><i class="ph-fill ph-seal-check"></i>Terverifikasi ${s.credibleSources.length} media</span>`;
+  if (s.credible) return `<span class="badge"><i class="ph ph-shield-check"></i>Sumber kredibel</span>`;
+  return `<span class="badge warn"><i class="ph ph-warning"></i>Belum terverifikasi</span>`;
 }
 function storyTags(s) {
   const t = [];
   if (s.categoryLabel && s.category !== "lainnya") t.push(`<span class="tag tag-neutral">${esc(s.categoryLabel)}</span>`);
+  (s.tagLabels || []).slice(0, 2).forEach((x) => t.push(`<span class="tag tag-neutral">${esc(x)}</span>`));
   (s.platformLabels || []).forEach((p) => t.push(`<span class="tag tag-outline">${esc(p)}</span>`));
   return t.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${t.join("")}</div>` : "";
+}
+function trustSummary(stats) {
+  if (!stats) return "";
+  return `<div class="trust-row reveal"><span><i class="ph-fill ph-seal-check" style="color:var(--color-up)"></i>${stats.verified} terverifikasi</span>
+    <span><i class="ph ph-shield-check"></i>${stats.credible} dari media kredibel</span>
+    <span><i class="ph ph-prohibit"></i>${stats.hoaxFiltered || 0} hoaks disaring</span></div>`;
 }
 function newsBlocks(hot, list) {
   state.articles = { hot, list };
@@ -325,54 +396,50 @@ function newsBlocks(hot, list) {
   const pages = Array.from({ length: Math.min(5, pageCount) }, (_, i) => start + i);
   return `
     <div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><i class="ph-fill ph-fire" style="color:var(--color-accent)"></i><h6 style="margin:0">Headline hot</h6></div>
-      ${hot.length ? `<div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))">
-        ${hot.map((h, i) => `<button class="card elev-md hot-card hoverable" data-article="hot:${i}">
-            <div style="display:flex;gap:6px;align-items:center"><span class="tag tag-outline">HOT #${i + 1}</span><span class="card-meta" style="margin-left:auto">${esc(h.time)}</span></div>
-            <div class="card-title" style="font-size:18px;text-wrap:pretty">${esc(h.title)}</div>
-            <p class="card-body" style="text-wrap:pretty">${esc(h.excerpt)}</p>
-            ${storyTags(h)}
-            <span class="card-meta" style="margin-top:auto">${esc(h.source)}${h.sources.length > 1 ? ` +${h.sources.length - 1} sumber` : ""}</span>
-          </button>`).join("")}</div>` : `<p class="text-muted">Belum ada berita untuk pilihan ini.</p>`}
+      <div class="sub-head"><i class="ph-fill ph-fire" style="color:#ff8a65"></i><h6>Headline hot</h6></div>
+      ${hot.length ? `<div class="hot-grid">${hot.map((h, i) => `<button class="card hot-card reveal ${i === 0 ? "top" : ""}" data-article="hot:${i}" style="--i:${i}">
+          <div style="display:flex;gap:6px;align-items:center"><span class="tag tag-outline">HOT #${i + 1}</span><span class="card-meta" style="margin-left:auto">${esc(h.time)}</span></div>
+          <div class="card-title" style="font-size:18px">${esc(h.title)}</div>
+          <p class="card-body clamp3">${esc(h.excerpt)}</p>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto">${trustBadge(h)}${storyTags(h).replace(/^<div[^>]*>|<\/div>$/g, "")}</div>
+          <span class="card-meta">${esc(h.source)}${h.sources.length > 1 ? ` +${h.sources.length - 1} sumber` : ""}</span>
+        </button>`).join("")}</div>` : `<p class="text-muted">Belum ada berita untuk pilihan ini.</p>`}
     </div>
     <div>
-      <h6 style="margin:0 0 6px">Berita terbaru</h6>
-      <div style="display:flex;flex-direction:column">
-        ${items.map((a, i) => `<button class="news-row" data-article="list:${(state.newsPage - 1) * PER_PAGE + i}">
-            <span style="font-size:16px;font-weight:500;text-wrap:pretty">${esc(a.title)}</span>
-            <span class="card-meta" style="white-space:nowrap">${esc(a.time)}</span>
-            ${a.excerpt ? `<span class="text-muted" style="font-size:13px;text-wrap:pretty">${esc(a.excerpt)}</span>` : "<span></span>"}
-            <span class="card-meta" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${esc(a.source)}${a.categoryLabel && a.category !== "lainnya" ? ` · ${esc(a.categoryLabel)}` : ""}${(a.platformLabels || []).length ? ` · ${esc(a.platformLabels.join(", "))}` : ""}</span>
-          </button>`).join("") || `<p class="text-muted">Belum ada berita lain.</p>`}
-      </div>
-      ${pageCount > 1 ? `<div style="display:flex;align-items:center;gap:6px;margin-top:16px;flex-wrap:wrap">
+      <div class="sub-head"><i class="ph ph-clock" style="color:var(--color-accent)"></i><h6>Berita terbaru</h6></div>
+      <div style="display:flex;flex-direction:column">${items.map((a, i) => `<button class="news-row reveal" data-article="list:${(state.newsPage - 1) * PER_PAGE + i}" style="--i:${i}">
+          <span style="font-size:15px;font-weight:500">${esc(a.title)}</span><span class="card-meta" style="white-space:nowrap">${esc(a.time)}</span>
+          ${a.excerpt ? `<span class="text-muted clamp2" style="font-size:13px">${esc(a.excerpt)}</span>` : "<span></span>"}
+          <span class="card-meta row-meta">${a.verified ? '<i class="ph-fill ph-seal-check" style="color:var(--color-up)"></i>' : a.credible ? "" : '<i class="ph ph-warning" style="color:#f0b86e"></i>'}${esc(a.source)}${a.categoryLabel && a.category !== "lainnya" ? ` · ${esc(a.categoryLabel)}` : ""}${(a.tagLabels || []).length ? ` · ${esc(a.tagLabels[0])}` : ""}${(a.platformLabels || []).length ? ` · ${esc(a.platformLabels.join(", "))}` : ""}</span>
+        </button>`).join("") || `<p class="text-muted">Belum ada berita lain.</p>`}</div>
+      ${pageCount > 1 ? `<div class="pager">
         <button class="btn btn-secondary btn-icon" data-page="${state.newsPage - 1}" ${state.newsPage === 1 ? "disabled" : ""} aria-label="Sebelumnya"><i class="ph ph-caret-left"></i></button>
         ${pages.map((p) => `<button class="btn ${p === state.newsPage ? "btn-primary" : "btn-secondary"} btn-icon" data-page="${p}">${p}</button>`).join("")}
         <button class="btn btn-secondary btn-icon" data-page="${state.newsPage + 1}" ${state.newsPage === pageCount ? "disabled" : ""} aria-label="Berikutnya"><i class="ph ph-caret-right"></i></button>
-        <span class="card-meta" style="margin-left:8px">Halaman ${state.newsPage} dari ${pageCount}</span></div>` : ""}
+        <span class="card-meta" style="margin-left:6px">${state.newsPage}/${pageCount}</span></div>` : ""}
     </div>`;
 }
 function openArticle(ref, catLabel) {
   const [kind, idx] = ref.split(":");
   const a = (state.articles || {})[kind] && state.articles[kind][+idx];
   if (!a) return;
+  haptic();
   state.article = a;
   $("dialog").innerHTML = `
     <div class="dialog-backdrop" style="z-index:50" data-action="closeArticle">
-      <div class="dialog" role="dialog" aria-modal="true" style="width:min(600px,100%);max-height:85vh;overflow:auto" data-stop>
+      <div class="dialog sheet" role="dialog" aria-modal="true" data-stop>
+        <div class="grab"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="tag tag-accent">${esc(a.categoryLabel && a.category !== "lainnya" ? a.categoryLabel : catLabel)}</span><span class="card-meta">${esc(a.source)} · ${esc(a.time)}</span>
           <button class="btn btn-ghost btn-icon" style="margin-left:auto" data-action="closeArticle" aria-label="Tutup"><i class="ph ph-x" style="color:var(--color-text)"></i></button></div>
-        <div class="dialog-title" style="font-size:24px;line-height:1.2;text-wrap:pretty">${esc(a.title)}</div>
-        <div class="dialog-body" style="font-size:15px;text-wrap:pretty">
+        <div class="dialog-title" style="font-size:22px;line-height:1.25">${esc(a.title)}</div>
+        <div>${trustBadge(a)}</div>
+        <div class="dialog-body" style="font-size:15px">
           ${a.excerpt ? `<p>${esc(a.excerpt)}</p>` : ""}
-          ${storyTags(a)}
-          <p style="margin-top:10px"><i class="ph ph-cpu" style="color:var(--color-accent)"></i> ${esc(a.explain || "")}</p>
-          ${a.sources.length > 1 ? `<p><b style="color:var(--color-text);font-weight:500">Sumber:</b> ${a.sources.map(esc).join(", ")}</p>` : ""}
+          <p class="explain"><i class="ph-fill ph-sparkle" style="color:var(--color-accent)"></i> ${esc(a.explain || "")}</p>
           ${a.related.length ? `<p style="margin-bottom:4px"><b style="color:var(--color-text);font-weight:500">Liputan terkait</b></p>
             <ul style="margin:0;padding-left:18px">${a.related.map((r) => `<li><a href="#" data-open="${esc(r.link)}">${esc(r.title)}</a> <span class="card-meta">${esc(r.source)}</span></li>`).join("")}</ul>` : ""}
         </div>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-action="closeArticle">Tutup</button>
           <button class="btn btn-secondary" data-open="${esc(a.link)}"><i class="ph ph-arrow-square-out"></i>Baca di sumber</button>
           <button class="btn btn-primary" data-action="shareArticle"><i class="ph ph-share-network"></i>Bagikan</button>
         </div>
@@ -380,149 +447,153 @@ function openArticle(ref, catLabel) {
     </div>`;
 }
 
-// ---------------------------------------------------------------------- berita kripto
-function viewKripto() {
-  const d = load("kripto", "/v1/news/kripto");
-  const head = newsHead("Berita Kripto Hari Ini", "Rangkuman pasar aset digital dari berbagai sumber & forum.", d, "refreshKripto");
-  if (d.status === "error") return `<section class="section">${head}${errorCard(d.error, "refreshKripto")}</section>`;
-  if (!d.data) return `<section class="section">${head}${skeletonNews()}${loadingCard("RheusInterface mengumpulkan berita kripto…")}</section>`;
-  return `<section class="section">${head}${newsBlocks(d.data.hot, d.data.list)}</section>`;
+// ---------------------------------------------------------------------- Berita Finansial
+const FIN_ICON = { saham: "ph-chart-line-up", rupiah: "ph-currency-circle-dollar", kripto: "ph-currency-btc", perbankan: "ph-bank", emas: "ph-coins", makro: "ph-globe" };
+function viewFinansial() {
+  const d = load("finansial");
+  const head = newsHead("Berita Finansial", "Saham, rupiah, kripto, perbankan, dan ekonomi — dari media kredibel.", d, "refresh:finansial");
+  if (!d.data) return `<section class="section">${head}${d.status === "error" ? errorCard(d.error, "refresh:finansial") : skeletonNews() + loadingLine("Mengunduh dari Rheus Cloud…")}</section>`;
+  const f = state.fin, all = d.data.hot.concat(d.data.list);
+  let hot = d.data.hot, list = d.data.list;
+  if (f.tag !== "all") { const x = all.filter((s) => s.tags.includes(f.tag)); hot = x.filter((s) => s.credible).sort((a, b) => b.score - a.score).slice(0, 3); const hs = new Set(hot); list = x.filter((s) => !hs.has(s)).sort((a, b) => b.ts - a.ts); }
+  return `<section class="section">${head}${trustSummary(d.data.stats)}
+    ${chips("fin", [{ id: "all", label: "Semua", count: all.length }, ...d.data.tags.map((t) => ({ id: t.id, label: t.label, icon: FIN_ICON[t.id], count: t.count }))], f.tag)}
+    ${newsBlocks(hot, list)}</section>`;
 }
 
-// ---------------------------------------------------------------------- berita utama
+// ---------------------------------------------------------------------- Berita Utama
 function viewUtama() {
-  const d = load("utama", "/v1/news/utama");
+  const d = load("utama");
   const u = state.utama;
-  const head = newsHead("Berita Utama", u.tab === "nasional" ? "Peristiwa penting di Indonesia hari ini." : "Militer, ekonomi, hubungan antarnegara, dan geopolitik dunia.", d, "refreshUtama");
-  const tabs = `<div class="seg" role="tablist">${[["nasional", "Nasional", "ph-flag"], ["internasional", "Internasional", "ph-globe-hemisphere-east"]].map(([k, l, ic]) =>
+  const head = newsHead("Berita Utama", u.tab === "nasional" ? "Peristiwa penting di Indonesia." : "Militer, ekonomi, hubungan antarnegara & geopolitik.", d, "refresh:utama");
+  const tabs = `<div class="seg big" role="tablist">${[["nasional", "Nasional", "ph-flag"], ["internasional", "Internasional", "ph-globe-hemisphere-east"]].map(([k, l, ic]) =>
     `<label class="seg-opt ${u.tab === k ? "on" : ""}"><input type="radio" name="utab" value="${k}"><i class="ph ${ic}"></i> ${l}</label>`).join("")}</div>`;
-  if (d.status === "error") return `<section class="section">${head}${tabs}${errorCard(d.error, "refreshUtama")}</section>`;
-  if (!d.data) return `<section class="section">${head}${tabs}${skeletonNews()}${loadingCard("RheusInterface mengumpulkan & mengelompokkan berita…")}</section>`;
+  if (!d.data) return `<section class="section">${head}${tabs}${d.status === "error" ? errorCard(d.error, "refresh:utama") : skeletonNews() + loadingLine("Mengunduh dari Rheus Cloud…")}</section>`;
   const sec = d.data.sections[u.tab];
-  let hot = sec.hot, list = sec.list;
-  let filter = "";
+  let hot = sec.hot, list = sec.list, filter = "";
   if (u.tab === "internasional") {
-    const all = hot.concat(list);
-    const counts = {};
+    const all = hot.concat(list), counts = {};
     all.forEach((s) => (counts[s.category] = (counts[s.category] || 0) + 1));
     const icons = { militer: "ph-shield-star", ekonomi: "ph-chart-bar", diplomasi: "ph-handshake", geopolitik: "ph-globe-stand", lainnya: "ph-dots-three" };
     filter = chips("ucat", [{ id: "all", label: "Semua", count: all.length }, ...d.data.categories.map((c) => ({ id: c.id, label: c.label, icon: icons[c.id], count: counts[c.id] || 0 }))], u.cat);
-    if (u.cat !== "all") {
-      const f = all.filter((s) => s.category === u.cat).sort((a, b) => b.score - a.score);
-      hot = f.slice(0, 3);
-      list = f.slice(3).sort((a, b) => b.ts - a.ts);
-    }
+    if (u.cat !== "all") { const f = all.filter((s) => s.category === u.cat); hot = f.filter((s) => s.credible).sort((a, b) => b.score - a.score).slice(0, 3); const hs = new Set(hot); list = f.filter((s) => !hs.has(s)).sort((a, b) => b.ts - a.ts); }
   }
-  return `<section class="section">${head}<div style="display:flex;flex-direction:column;gap:12px">${tabs}${filter}</div>${newsBlocks(hot, list)}</section>`;
+  return `<section class="section">${head}<div style="display:flex;flex-direction:column;gap:12px">${tabs}${trustSummary(sec.stats)}${filter}</div>${newsBlocks(hot, list)}</section>`;
 }
 
-// ---------------------------------------------------------------------- berita viral
+// ---------------------------------------------------------------------- Berita Viral
 const PLATFORM_ICON = { tiktok: "ph-tiktok-logo", instagram: "ph-instagram-logo", x: "ph-x-logo", youtube: "ph-youtube-logo", facebook: "ph-facebook-logo" };
 const CAT_ICON = { makanan: "ph-hamburger", selebriti: "ph-star", dance: "ph-music-notes", hewan: "ph-paw-print", olahraga: "ph-soccer-ball", teknologi: "ph-device-mobile", sosial: "ph-users-three", lainnya: "ph-dots-three" };
 function viewViral() {
   const v = state.viral;
-  const key = "viral:" + v.region;
-  const d = load(key, "/v1/news/viral?region=" + v.region);
-  const head = newsHead("Berita Viral", "Yang sedang ramai di media sosial — per platform & kategori.", d, "refreshViral");
-  const region = `<div class="seg" role="radiogroup" aria-label="Region">${[["id", "🇮🇩 Indonesia"], ["us", "🇺🇸 USA"]].map(([k, l]) =>
-    `<label class="seg-opt ${v.region === k ? "on" : ""}"><input type="radio" name="vregion" value="${k}">${l}</label>`).join("")}</div>`;
-  if (d.status === "error") return `<section class="section">${head}${region}${errorCard(d.error, "refreshViral")}</section>`;
-  if (!d.data) return `<section class="section">${head}${region}${skeletonNews()}${loadingCard("RheusInterface menelusuri media sosial & forum…")}</section>`;
+  const name = "viral-" + v.region;
+  const d = load(name);
+  const head = newsHead("Berita Viral", "Yang sedang ramai di media sosial — per platform & kategori.", d, "refresh:" + name);
+  const region = `<div class="seg big" role="radiogroup">${[["id", "🇮🇩 Indonesia"], ["us", "🇺🇸 USA"]].map(([k, l]) => `<label class="seg-opt ${v.region === k ? "on" : ""}"><input type="radio" name="vregion" value="${k}">${l}</label>`).join("")}</div>`;
+  if (!d.data) return `<section class="section">${head}${region}${d.status === "error" ? errorCard(d.error, "refresh:" + name) : skeletonNews() + loadingLine("Mengunduh dari Rheus Cloud…")}</section>`;
   const all = d.data.hot.concat(d.data.list);
   const f = all.filter((s) => (v.platform === "all" || s.platforms.includes(v.platform)) && (v.cat === "all" || s.category === v.cat));
   const filtered = v.platform !== "all" || v.cat !== "all";
-  const hot = filtered ? f.slice().sort((a, b) => b.score - a.score).slice(0, 3) : d.data.hot;
-  const hotSet = new Set(hot);
-  const list = (filtered ? f : d.data.list).filter((s) => !hotSet.has(s)).sort((a, b) => b.ts - a.ts);
+  const hot = filtered ? f.filter((s) => s.credible || f.length < 6).sort((a, b) => b.score - a.score).slice(0, 3) : d.data.hot;
+  const hs = new Set(hot);
+  const list = (filtered ? f : d.data.list).filter((s) => !hs.has(s)).sort((a, b) => b.ts - a.ts);
   const pcount = (id) => all.filter((s) => s.platforms.includes(id)).length;
   const ccount = (id) => all.filter((s) => s.category === id && (v.platform === "all" || s.platforms.includes(v.platform))).length;
   return `<section class="section">${head}
-    <div style="display:flex;flex-direction:column;gap:10px">${region}
-      <span class="card-meta">Media sosial</span>
+    <div style="display:flex;flex-direction:column;gap:10px">${region}${trustSummary(d.data.stats)}
       ${chips("vplat", [{ id: "all", label: "Semua", count: all.length }, ...d.data.platforms.map((p) => ({ id: p.id, label: p.label, icon: PLATFORM_ICON[p.id], count: pcount(p.id) }))], v.platform)}
-      <span class="card-meta">Kategori</span>
-      ${chips("vcat", [{ id: "all", label: "Semua" }, ...d.data.categories.filter((c) => c.id !== "lainnya" || ccount(c.id)).map((c) => ({ id: c.id, label: c.label, icon: CAT_ICON[c.id], count: ccount(c.id) }))], v.cat)}
-    </div>
-    ${newsBlocks(hot, list)}</section>`;
+      ${chips("vcat", [{ id: "all", label: "Semua kategori" }, ...d.data.categories.filter((c) => ccount(c.id)).map((c) => ({ id: c.id, label: c.label, icon: CAT_ICON[c.id], count: ccount(c.id) }))], v.cat)}
+    </div>${newsBlocks(hot, list)}</section>`;
 }
 
-// ---------------------------------------------------------------------- bitcoin
-const fmtUsd = (x) => Number.isFinite(x) ? "US$" + Math.round(x).toLocaleString("id-ID") : "—";
+// ---------------------------------------------------------------------- Bitcoin
+const fmtUsd = (x) => (Number.isFinite(x) ? "US$" + Math.round(x).toLocaleString("id-ID") : "—");
 function fmtIdr(x) {
   if (!Number.isFinite(x)) return "—";
   if (x >= 1e12) return "Rp" + (x / 1e12).toLocaleString("id-ID", { maximumFractionDigits: 2 }) + " T";
   if (x >= 1e9) return "Rp" + (x / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 2 }) + " M";
   return "Rp" + Math.round(x).toLocaleString("id-ID");
 }
-function fmtBig(x) {
-  if (!Number.isFinite(x)) return "—";
-  if (x >= 1e9) return "US$" + (x / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " M";
-  return "US$" + (x / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " jt";
-}
+const fmtBig = (x) => (!Number.isFinite(x) ? "—" : x >= 1e9 ? "US$" + (x / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " M" : "US$" + (x / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 1 }) + " jt");
 const pct = (x) => Math.round(x * 100) + "%";
-const signed = (x) => (x >= 0 ? "+" : "") + x.toLocaleString("id-ID", { maximumFractionDigits: 1, minimumFractionDigits: 1 }) + "%";
+const signed = (x) => (x >= 0 ? "+" : "") + x.toLocaleString("id-ID", { maximumFractionDigits: 2, minimumFractionDigits: 2 }) + "%";
 function chartPaths(series) {
   const n = series.length, min = Math.min(...series), max = Math.max(...series), span = max - min || 1;
   const line = series.map((v, i) => `${((i * 600) / Math.max(1, n - 1)).toFixed(1)},${(150 - ((v - min) / span) * 135).toFixed(1)}`).join(" ");
   return { line, area: "M0,160 L" + line.replace(/ /g, " L") + " L600,160 Z" };
 }
+let liveTimer = null;
+async function pollLive() {
+  try {
+    const r = await withTimeout(fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,idr&include_24hr_change=true"), 8000, "timeout");
+    const j = (await r.json()).bitcoin;
+    const prev = state.live && state.live.usd;
+    state.live = { usd: j.usd, idr: j.idr, change: j.usd_24h_change, at: Date.now(), dir: prev ? Math.sign(j.usd - prev) : 0 };
+    const el = $("livePrice");
+    if (el && state.page === "btc") {
+      el.textContent = fmtUsd(j.usd);
+      el.classList.remove("tick-up", "tick-down"); void el.offsetWidth;
+      if (state.live.dir) el.classList.add(state.live.dir > 0 ? "tick-up" : "tick-down");
+      const c = $("liveChange");
+      if (c && state.btcTf === "24j") { c.className = j.usd_24h_change >= 0 ? "up" : "down"; c.innerHTML = `<i class="ph ${j.usd_24h_change >= 0 ? "ph-trend-up" : "ph-trend-down"}"></i> ${signed(j.usd_24h_change)} (24j) · ≈ ${fmtIdr(j.idr)}`; }
+    }
+  } catch {}
+}
 function viewBtc() {
   const tf = state.btcTf;
-  const d = load("btc:" + tf, "/v1/btc?tf=" + tf);
-  const today = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const head = `<div class="head-row">
-      <div style="margin-right:auto"><h2>Prediksi Arah Bitcoin</h2><p class="text-muted">Analisa hari ini, ${esc(today)}${d.data ? ` · diperbarui ${esc(agoText(d.data.updatedAt))}` : ""}</p></div>
-      <div class="seg" role="radiogroup" aria-label="Rentang waktu">${["24j", "7h", "30h"].map((k) => `<label class="seg-opt ${k === tf ? "on" : ""}"><input type="radio" name="tf" value="${k}">${k}</label>`).join("")}</div>
-    </div>`;
-  if (d.status === "error") return `<section class="section" style="gap:18px">${head}${errorCard(d.error, "reloadBtc")}</section>`;
-  if (!d.data) return `<section class="section" style="gap:18px">${head}<div class="card elev-md" style="padding:18px;gap:14px"><div class="skeleton" style="height:14px;width:90px"></div><div class="skeleton" style="height:40px;width:240px"></div><div class="skeleton" style="height:160px"></div></div>${loadingCard("RheusInterface menghitung indikator & uji balik…")}</section>`;
-  const b = d.data, m = b.model, mk = b.market;
+  const d = load("btc-" + tf);
+  if (!liveTimer) { pollLive(); liveTimer = setInterval(() => { if (state.page === "btc") pollLive(); }, 20000); }
+  const today = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long" });
+  const head = `<div class="head-row page-head"><div style="margin-right:auto"><h2>Prediksi Arah Bitcoin</h2><p class="text-muted">${esc(today)} · analisa Rheus ${d.data ? esc(agoText(d.data.updatedAt)) : ""}</p></div>
+    <div class="seg" role="radiogroup">${["24j", "7h", "30h"].map((k) => `<label class="seg-opt ${k === tf ? "on" : ""}"><input type="radio" name="tf" value="${k}">${k}</label>`).join("")}</div></div>`;
+  if (!d.data) return `<section class="section">${head}${d.status === "error" ? errorCard(d.error, "refresh:btc-" + tf) : `<div class="card elev-md" style="gap:14px"><div class="skeleton" style="height:40px;width:240px"></div><div class="skeleton" style="height:160px"></div></div>`}</section>`;
+  const b = d.data, m = b.model, mk = b.market, sk = m.skill;
+  const live = state.live;
+  const price = live ? live.usd : b.price;
+  const change = live && tf === "24j" ? live.change : b.change;
   const dir = { up: ["ph-arrow-up-right", "Cenderung naik"], down: ["ph-arrow-down-right", "Cenderung turun"], side: ["ph-arrows-left-right", "Cenderung sideways"] }[m.direction];
-  const invalid = m.direction === "up" ? `Penutupan di bawah support ${fmtUsd(b.support)} akan membatalkan skenario ini.` : m.direction === "down" ? `Penutupan di atas resistance ${fmtUsd(b.resistance)} akan membatalkan skenario ini.` : "Tembusnya support atau resistance akan menentukan arah berikutnya.";
-  const ch = chartPaths(b.series), up = b.change >= 0, sk = m.skill;
+  const invalid = m.direction === "up" ? `Penutupan di bawah support ${fmtUsd(b.support)} membatalkan skenario ini.` : m.direction === "down" ? `Penutupan di atas resistance ${fmtUsd(b.resistance)} membatalkan skenario ini.` : "Tembusnya support atau resistance menentukan arah berikutnya.";
+  const lastS = b.series[b.series.length - 1];
+  const ch = chartPaths(b.series.concat(live && Math.abs(live.usd / lastS - 1) < 0.1 ? [live.usd] : [])), up = change >= 0;
   const market = [
-    ["Fear & Greed", mk.fng ? mk.fng.value : "—", mk.fng ? mk.fng.label : "Tidak tersedia"],
-    ["Volume 24j", fmtBig(mk.volume24h), "CoinGecko"],
-    ["Dominasi BTC", mk.dominance ? mk.dominance.toLocaleString("id-ID", { maximumFractionDigits: 1 }) + "%" : "—", mk.dominance ? (mk.dominance > 55 ? "Tinggi" : "Sedang") : "Tidak tersedia"],
-    ["Funding rate", mk.funding !== null ? (mk.funding >= 0 ? "+" : "") + (mk.funding * 100).toLocaleString("id-ID", { maximumFractionDigits: 4 }) + "%" : "—", mk.funding === null ? "Tidak tersedia" : mk.funding > 0.0002 ? "Long ramai" : mk.funding < 0 ? "Short ramai" : "Netral"],
+    ["Fear & Greed", mk.fng ? mk.fng.value : "—", mk.fng ? mk.fng.label : "—"], ["Volume 24j", fmtBig(mk.volume24h), "CoinGecko"],
+    ["Dominasi BTC", mk.dominance ? mk.dominance.toLocaleString("id-ID", { maximumFractionDigits: 1 }) + "%" : "—", mk.dominance > 55 ? "Tinggi" : "Sedang"],
+    ["Funding rate", mk.funding !== null ? (mk.funding >= 0 ? "+" : "") + (mk.funding * 100).toLocaleString("id-ID", { maximumFractionDigits: 4 }) + "%" : "—", mk.funding > 0.0002 ? "Long ramai" : mk.funding < 0 ? "Short ramai" : "Netral"],
     ["RSI (14)", Number.isFinite(mk.rsi) ? mk.rsi.toFixed(0) : "—", mk.rsi > 70 ? "Jenuh beli" : mk.rsi < 30 ? "Jenuh jual" : "Netral"],
     ["Volatilitas 30h", mk.vol30.toLocaleString("id-ID", { maximumFractionDigits: 1 }) + "%", mk.vol30 > 15 ? "Tinggi" : mk.vol30 > 8 ? "Sedang" : "Rendah"],
   ];
-  return `<section class="section" style="gap:18px">${head}
+  return `<section class="section">${head}
+    <div class="card elev-md price-card reveal">
+      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end">
+        <div style="display:flex;flex-direction:column;gap:4px"><span class="card-kicker">BTC / USD ${live ? '<span class="live mini"><span class="dot"></span>LIVE</span>' : ""}</span>
+          <span id="livePrice" class="num price">${fmtUsd(price)}</span>
+          <span id="liveChange" class="${up ? "up" : "down"}"><i class="ph ${up ? "ph-trend-up" : "ph-trend-down"}"></i> ${signed(change)} (${esc(tf)}) · ≈ ${fmtIdr(live && tf === "24j" ? live.idr : b.priceIdr)}</span></div>
+        <div style="display:flex;gap:22px;margin-left:auto;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column"><span class="card-meta">Tertinggi ${esc(b.tfLabel)}</span><span class="num">${fmtUsd(b.high)}</span></div>
+          <div style="display:flex;flex-direction:column"><span class="card-meta">Terendah ${esc(b.tfLabel)}</span><span class="num">${fmtUsd(b.low)}</span></div></div>
+      </div>
+      <svg viewBox="0 0 600 160" preserveAspectRatio="none" class="chart" role="img" aria-label="Grafik harga">
+        <defs><linearGradient id="btcg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#9184d9" stop-opacity="0.4"></stop><stop offset="1" stop-color="#9184d9" stop-opacity="0"></stop></linearGradient></defs>
+        <path d="${ch.area}" fill="url(#btcg)" class="area"></path><polyline points="${ch.line}" fill="none" stroke="#b9b0ec" stroke-width="2" vector-effect="non-scaling-stroke" class="draw"></polyline></svg>
+    </div>
     <div class="grid-auto" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px">
-      <div class="card elev-md" style="padding:18px;gap:10px;grid-column:1/-1">
-        <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end">
-          <div style="display:flex;flex-direction:column;gap:4px"><span class="card-kicker">BTC / USD</span>
-            <span class="num" style="font-size:clamp(32px,5vw,44px);font-weight:500;letter-spacing:-0.02em">${fmtUsd(b.price)}</span>
-            <span style="font-size:14px" class="${up ? "up" : "down"}"><i class="ph ${up ? "ph-trend-up" : "ph-trend-down"}"></i> ${signed(b.change)} (${esc(tf)}) · ≈ ${fmtIdr(b.priceIdr)}</span></div>
-          <div style="display:flex;gap:22px;margin-left:auto;flex-wrap:wrap">
-            <div style="display:flex;flex-direction:column"><span class="card-meta">Tertinggi ${esc(b.tfLabel)}</span><span class="num">${fmtUsd(b.high)}</span></div>
-            <div style="display:flex;flex-direction:column"><span class="card-meta">Terendah ${esc(b.tfLabel)}</span><span class="num">${fmtUsd(b.low)}</span></div></div>
-        </div>
-        <svg viewBox="0 0 600 160" preserveAspectRatio="none" style="width:100%;height:160px;display:block" role="img" aria-label="Grafik harga ${esc(b.tfLabel)}">
-          <defs><linearGradient id="btcg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#9184d9" stop-opacity="0.35"></stop><stop offset="1" stop-color="#9184d9" stop-opacity="0"></stop></linearGradient></defs>
-          <path d="${ch.area}" fill="url(#btcg)"></path><polyline points="${ch.line}" fill="none" stroke="#9184d9" stroke-width="2" vector-effect="non-scaling-stroke"></polyline></svg>
+      <div class="card elev-sm reveal" style="gap:12px;--i:1"><span class="card-kicker">Arah · ${esc(b.tfLabel)}</span>
+        <div style="display:flex;align-items:center;gap:14px"><span class="dir-orb ${m.direction}"><i class="ph ${dir[0]}"></i></span>
+          <div><div style="font-size:22px;font-weight:600">${dir[1]}</div><div class="text-muted" style="font-size:13px">Target ${fmtUsd(m.target)} · keyakinan ${esc(m.confidence)}</div></div></div>
+        <p class="card-body">Sinyal: ${esc(m.reasons.slice(0, 3).join(", "))}. ${m.context.length ? `Sentimen: ${esc(m.context.join(", "))}. ` : ""}${esc(invalid)}</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="stat"><span class="card-meta">Support</span><span class="num">${fmtUsd(b.support)}</span></div><div class="stat"><span class="card-meta">Resistance</span><span class="num">${fmtUsd(b.resistance)}</span></div></div>
       </div>
-      <div class="card elev-sm" style="padding:18px;gap:12px"><span class="card-kicker">Arah pergerakan · ${esc(b.tfLabel)}</span>
-        <div style="display:flex;align-items:center;gap:14px">
-          <span style="width:56px;height:56px;border-radius:50%;border:1px solid var(--color-accent);display:grid;place-items:center;box-shadow:0 0 28px color-mix(in srgb, var(--color-accent) 35%, transparent)"><i class="ph ${dir[0]}" style="font-size:26px;color:var(--color-accent)"></i></span>
-          <div><div style="font-size:24px;font-weight:500">${dir[1]}</div><div class="text-muted" style="font-size:13px">Target ${fmtUsd(m.target)} · keyakinan ${esc(m.confidence)}</div></div></div>
-        <p class="card-body" style="text-wrap:pretty">Sinyal: ${esc(m.reasons.slice(0, 3).join(", "))}. ${m.context.length ? `Sentimen: ${esc(m.context.join(", "))}. ` : ""}${esc(invalid)}</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div class="stat"><span class="card-meta">Support</span><span class="num">${fmtUsd(b.support)}</span></div>
-          <div class="stat"><span class="card-meta">Resistance</span><span class="num">${fmtUsd(b.resistance)}</span></div></div>
+      <div class="card elev-sm reveal" style="gap:14px;--i:2"><span class="card-kicker">Probabilitas</span>
+        ${[["Naik", "ph-arrow-up-right", m.probs.up, "var(--color-up)"], ["Sideways", "ph-arrows-left-right", m.probs.side, "var(--color-neutral-500)"], ["Turun", "ph-arrow-down-right", m.probs.down, "var(--color-down)"]].map(([l, ic, p, c]) => `
+          <div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:center;gap:8px;font-size:14px"><i class="ph ${ic}" style="color:${c}"></i>${l}<span class="num" style="margin-left:auto;font-weight:600">${pct(p)}</span></div>
+          <div class="bar"><div style="--w:${(p * 100).toFixed(1)}%;background:${c}"></div></div></div>`).join("")}
+        <span class="card-meta" style="line-height:1.5">Dari ${m.historyDays} hari bersinyal ${esc(m.signal)} serupa (±2 tahun). Frekuensi historis, bukan jaminan.</span>
+        <span class="card-meta" style="line-height:1.5"><i class="ph ph-flask"></i>Uji balik ${sk.days} hari: arah benar ${sk.accuracy === null ? "—" : pct(sk.accuracy)}. ${sk.skilled ? "Sedikit lebih baik dari tebakan dasar." : "Belum terbukti lebih baik dari tebakan dasar."}</span>
       </div>
-      <div class="card elev-sm" style="padding:18px;gap:14px"><span class="card-kicker">Probabilitas</span>
-        ${[["Naik", "ph-arrow-up-right", m.probs.up, "var(--color-accent)"], ["Sideways", "ph-arrows-left-right", m.probs.side, "var(--color-neutral-500)"], ["Turun", "ph-arrow-down-right", m.probs.down, "var(--color-neutral-700)"]].map(([l, ic, p, c]) => `
-          <div style="display:flex;flex-direction:column;gap:6px"><div style="display:flex;align-items:center;gap:8px;font-size:14px"><i class="ph ${ic}" style="color:var(--color-accent)"></i>${l}<span class="num" style="margin-left:auto;font-weight:500">${pct(p)}</span></div>
-          <div style="height:6px;border-radius:6px;background:var(--color-neutral-800);overflow:hidden"><div style="height:100%;border-radius:6px;background:${c};width:${(p * 100).toFixed(1)}%"></div></div></div>`).join("")}
-        <span class="card-meta" style="line-height:1.5">Dari ${m.historyDays} hari dengan sinyal ${esc(m.signal)} serupa dalam ±2 tahun terakhir. Probabilitas adalah frekuensi historis, bukan jaminan.</span>
-        <span class="card-meta" style="line-height:1.5"><i class="ph ph-flask"></i>Uji balik otomatis ${sk.days} hari: tebakan arah benar ${sk.accuracy === null ? "—" : pct(sk.accuracy)} dari ${sk.calls} kali. ${sk.skilled ? "Sedikit lebih baik dari tebakan dasar." : "Belum terbukti lebih baik dari tebakan dasar."}</span>
-      </div>
-      <div class="card elev-sm" style="padding:18px;gap:10px;grid-column:1/-1"><span class="card-kicker">Keadaan pasar</span>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${market.map(([l, v, n]) => `<div class="stat"><span class="card-meta">${esc(l)}</span><span class="num" style="font-size:20px;font-weight:500">${esc(v)}</span><span style="font-size:12px;color:var(--color-accent-300)">${esc(n)}</span></div>`).join("")}</div>
-        <span class="card-meta"><i class="ph ph-info"></i>Bukan saran keuangan. Uji balik menunjukkan arah harga Bitcoin hampir tidak bisa ditebak dari indikator teknikal — anggap ini gambaran statistik, bukan ramalan. Dihitung ${esc(b.computeMs)} ms di RheusInterface.</span>
-      </div>
+    </div>
+    <div class="card elev-sm reveal" style="gap:10px;--i:3"><span class="card-kicker">Keadaan pasar</span>
+      <div class="stats-grid">${market.map(([l, v, n]) => `<div class="stat"><span class="card-meta">${esc(l)}</span><span class="num" style="font-size:20px;font-weight:600">${esc(v)}</span><span style="font-size:12px;color:var(--color-accent-300)">${esc(n)}</span></div>`).join("")}</div>
+      <span class="card-meta"><i class="ph ph-info"></i>Bukan saran keuangan. Arah harga Bitcoin hampir tidak bisa ditebak dari indikator teknikal — ini gambaran statistik, bukan ramalan.</span>
     </div></section>`;
 }
 
@@ -532,182 +603,145 @@ audio.preload = "none";
 audio.addEventListener("playing", () => { state.radio.status = "playing"; renderPlayer(); });
 audio.addEventListener("waiting", () => { state.radio.status = "loading"; renderPlayer(); });
 audio.addEventListener("pause", () => { if (state.radio.status !== "error") state.radio.status = "paused"; renderPlayer(); });
-audio.addEventListener("error", () => { if (state.radio.playing) { state.radio.status = "error"; renderPlayer(); toast("Stasiun tidak bisa diputar. Coba stasiun lain."); } });
-
-function playableHere(s) { return isApp || s.https || location.protocol === "http:"; }
+audio.addEventListener("error", () => { if (state.radio.playing && audio.getAttribute("src")) { state.radio.status = "error"; renderPlayer(); toast("Stasiun tidak bisa diputar. Coba stasiun lain."); } });
 function viewRadio() {
   const r = state.radio;
-  const d = load("radio:" + r.region, "/v1/radio?region=" + r.region);
-  const region = `<div class="seg" role="radiogroup">${[["id", "🇮🇩 Indonesia"], ["us", "🇺🇸 USA"]].map(([k, l]) => `<label class="seg-opt ${r.region === k ? "on" : ""}"><input type="radio" name="rregion" value="${k}">${l}</label>`).join("")}</div>`;
-  const head = `<div class="head-row"><div style="margin-right:auto"><h2>Radio</h2><p class="text-muted">Stasiun radio gratis dari direktori terbuka Radio Browser.</p></div></div>`;
-  if (d.status === "error") return `<section class="section">${head}${region}${errorCard(d.error, "reloadRadio")}</section>`;
-  if (!d.data) return `<section class="section">${head}${region}${loadingCard("Memuat daftar stasiun…")}</section>`;
+  const d = load("radio-" + r.region);
+  const head = `<div class="head-row page-head"><div style="margin-right:auto"><h2>Radio</h2><p class="text-muted">Stasiun gratis dari direktori terbuka Radio Browser.</p></div></div>`;
+  const region = `<div class="seg big" role="radiogroup">${[["id", "🇮🇩 Indonesia"], ["us", "🇺🇸 USA"]].map(([k, l]) => `<label class="seg-opt ${r.region === k ? "on" : ""}"><input type="radio" name="rregion" value="${k}">${l}</label>`).join("")}</div>`;
+  if (!d.data) return `<section class="section">${head}${region}${d.status === "error" ? errorCard(d.error, "refresh:radio-" + r.region) : loadingLine("Memuat stasiun…")}</section>`;
   const q = r.q.toLowerCase();
   const list = d.data.stations.filter((s) => !q || s.name.toLowerCase().includes(q) || s.tags.join(" ").includes(q) || (s.city || "").toLowerCase().includes(q));
-  return `<section class="section" style="gap:16px">${head}
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${region}
-      <div style="position:relative;flex:1;min-width:200px"><i class="ph ph-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-neutral-500)"></i>
-      <input id="radioQ" class="input" style="padding-left:32px" placeholder="Cari stasiun, kota, atau genre…" value="${esc(r.q)}"></div></div>
+  return `<section class="section">${head}<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">${region}
+    <div class="input-wrap" style="flex:1;min-width:200px"><i class="ph ph-magnifying-glass"></i><input id="radioQ" class="input" placeholder="Cari stasiun, kota, genre…" value="${esc(r.q)}"></div></div>
     <div class="grid-auto" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:10px">
-      ${list.map((s) => {
+      ${list.map((s, i) => {
         const on = r.playing && r.playing.id === s.id;
-        const can = playableHere(s);
-        return `<button class="card elev-sm station ${on ? "on" : ""}" data-station="${esc(s.id)}" ${can ? "" : "disabled title=\"Hanya bisa diputar di aplikasi Android\""}>
+        return `<button class="card elev-sm station ${on ? "on" : ""} reveal" data-station="${esc(s.id)}" style="--i:${Math.min(i, 12)}">
           <span class="station-logo">${s.favicon ? `<img src="${esc(s.favicon)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}<i class="ph ph-radio"></i></span>
-          <span style="display:flex;flex-direction:column;min-width:0;text-align:left"><span style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.name)}</span>
-          <span class="card-meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc([s.city, ...s.tags.slice(0, 2)].filter(Boolean).join(" · ") || "Radio")}${s.bitrate ? ` · ${s.bitrate} kbps` : ""}</span></span>
-          <i class="ph ${on && r.status === "playing" ? "ph-pause-circle" : "ph-play-circle"}" style="font-size:28px;color:var(--color-accent);margin-left:auto"></i>
+          <span style="display:flex;flex-direction:column;min-width:0;text-align:left"><span class="ellipsis" style="font-size:14px;font-weight:500">${esc(s.name)}</span>
+          <span class="card-meta ellipsis">${esc([s.city, ...s.tags.slice(0, 2)].filter(Boolean).join(" · ") || "Radio")}${s.bitrate ? ` · ${s.bitrate} kbps` : ""}</span></span>
+          ${on && r.status === "playing" ? '<span class="eq"><i></i><i></i><i></i></span>' : '<i class="ph-fill ph-play-circle" style="font-size:30px;color:var(--color-accent);margin-left:auto"></i>'}
         </button>`;
       }).join("") || `<p class="text-muted">Stasiun tidak ditemukan.</p>`}
-    </div>
-    ${!isApp ? `<span class="card-meta"><i class="ph ph-info"></i>Di versi web hanya stasiun dengan alamat aman (https) yang bisa diputar. Aplikasi Android bisa memutar semuanya.</span>` : ""}
-  </section>`;
+    </div></section>`;
 }
 function playStation(id) {
-  const d = state.data["radio:" + state.radio.region];
+  const d = state.data["radio-" + state.radio.region];
   const s = d && d.data && d.data.stations.find((x) => x.id === id);
   if (!s) return;
+  haptic();
   const r = state.radio;
   if (r.playing && r.playing.id === id && r.status === "playing") { audio.pause(); return; }
   r.playing = s; r.status = "loading";
   audio.src = s.url;
   audio.play().catch(() => { r.status = "error"; renderPlayer(); });
   if ("mediaSession" in navigator && window.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: s.name, artist: "SiLengkap Radio" });
-  render();
+  softRender();
 }
 function renderPlayer() {
   const r = state.radio, el = $("player");
   if (!r.playing) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
   const st = { playing: "Sedang diputar", loading: "Menyambungkan…", paused: "Dijeda", error: "Gagal memutar" }[r.status] || "";
-  el.innerHTML = `<i class="ph ph-radio" style="font-size:22px;color:var(--color-accent)"></i>
-    <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.playing.name)}</div><div class="card-meta">${st}</div></div>
-    <button class="btn btn-primary btn-icon" data-action="togglePlay" aria-label="${r.status === "playing" ? "Jeda" : "Putar"}"><i class="ph ${r.status === "playing" ? "ph-pause" : r.status === "loading" ? "ph-circle-notch" : "ph-play"}" ${r.status === "loading" ? 'style="animation:slspin 1s linear infinite"' : ""}></i></button>
+  el.innerHTML = `${r.status === "playing" ? '<span class="eq"><i></i><i></i><i></i></span>' : '<i class="ph ph-radio" style="font-size:22px;color:var(--color-accent)"></i>'}
+    <div style="min-width:0;flex:1"><div class="ellipsis" style="font-size:14px;font-weight:500">${esc(r.playing.name)}</div><div class="card-meta">${st}</div></div>
+    <button class="btn btn-primary btn-icon" data-action="togglePlay"><i class="ph-fill ${r.status === "playing" ? "ph-pause" : r.status === "loading" ? "ph-circle-notch spin" : "ph-play"}"></i></button>
     <button class="btn btn-ghost btn-icon" data-action="stopRadio" aria-label="Berhenti"><i class="ph ph-x"></i></button>`;
 }
 
-// ---------------------------------------------------------------------- gim
+// ---------------------------------------------------------------------- gim (offline)
 function viewGames() {
   const g = GAMES.find((x) => x.id === state.game);
   if (!g) {
-    return `<section class="section"><div><h2 style="margin:0 0 6px">Gim</h2><p class="text-muted" style="margin:0">Semua gim bisa dimainkan tanpa internet.</p></div>
+    return `<section class="section"><div class="page-head"><h2>Gim</h2><p class="text-muted">Semua gim bisa dimainkan tanpa internet.</p></div>
       <div class="grid-auto" style="grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))">
-        ${GAMES.map((x) => `<button class="card elev-md hoverable game-card" data-game="${x.id}"><i class="ph ${x.icon}"></i><span class="card-title">${esc(x.label)}</span><span class="card-meta">${esc(x.desc)}</span></button>`).join("")}
+        ${GAMES.map((x, i) => `<button class="card game-card reveal" data-game="${x.id}" style="--i:${i}"><i class="ph ${x.icon}"></i><span class="card-title">${esc(x.label)}</span><span class="card-meta">${esc(x.desc)}</span></button>`).join("")}
       </div></section>`;
   }
   return `<section class="section" style="gap:14px"><div class="head-row"><button class="btn btn-secondary btn-icon" data-go="games" aria-label="Kembali"><i class="ph ph-caret-left"></i></button>
-    <div style="margin-right:auto"><h2 style="margin:0">${esc(g.label)}</h2></div></div><div id="gameRoot"></div></section>`;
+    <h2 style="margin:0;margin-right:auto">${esc(g.label)}</h2></div><div id="gameRoot"></div></section>`;
 }
 function mountGame() {
   const root = $("gameRoot");
   if (!root || !state.game) return;
-  state.gameInst = window.SLGames[state.game].mount(root, {
-    esc,
-    getBest: () => state.best,
-    setBest: (s) => { state.best = s; store.set("silengkap-dino-best", s); },
-  });
+  state.gameInst = window.SLGames[state.game].mount(root, { esc, getBest: () => state.best, setBest: (s) => { state.best = s; store.set("silengkap-dino-best", s); } });
 }
 
-// ---------------------------------------------------------------------- pengaturan
-function openSettings() {
+// ---------------------------------------------------------------------- status Rheus Cloud
+async function openStatus() {
+  const man = Cloud.cached("manifest") || (await Cloud.get("manifest").catch(() => null));
+  if (!man) { toast("Rheus Cloud belum bisa dihubungi."); return; }
+  const L = man.learning || {}, P = (L.punctuation || {}), T = (L.topics || {});
   $("dialog").innerHTML = `
-    <div class="dialog-backdrop" style="z-index:50" data-action="closeArticle">
-      <div class="dialog" role="dialog" aria-modal="true" style="width:min(520px,100%)" data-stop>
-        <div class="dialog-title" style="font-size:20px">Pengaturan server</div>
-        <div class="dialog-body" style="font-size:14px">
-          <p>SiLengkap memakai server <b>RheusInterface</b> untuk semua menu kecuali Gim. Isi alamat server yang sudah kamu hosting (lihat README).</p>
-          <div class="field"><label for="rheusUrl">Alamat RheusInterface</label><input id="rheusUrl" class="input" value="${esc(Rheus.base())}" placeholder="https://…" inputmode="url"></div>
-          <p id="rheusTest" class="card-meta" style="margin-top:8px"></p>
-        </div>
-        <div class="dialog-actions">
-          <button class="btn btn-ghost" data-action="resetServer">Bawaan</button>
-          <button class="btn btn-secondary" data-action="testServer"><i class="ph ph-plugs-connected"></i>Tes</button>
-          <button class="btn btn-primary" data-action="saveServer">Simpan</button>
-        </div>
+    <div class="dialog-backdrop" style="z-index:50" data-action="closeArticle"><div class="dialog sheet" data-stop>
+      <div class="grab"></div>
+      <div class="dialog-title" style="font-size:20px"><span class="live"><span class="dot"></span>Rheus Cloud</span></div>
+      <div class="stats-grid">
+        <div class="stat"><span class="card-meta">Diperbarui</span><span class="num">${esc(agoText(man.updatedAt))}</span><span class="card-meta">setiap ±30 menit</span></div>
+        <div class="stat"><span class="card-meta">Memori</span><span class="num">${man.retentionHours} jam</span><span class="card-meta">data lama dihapus</span></div>
+        <div class="stat"><span class="card-meta">Klaim hoaks dipantau</span><span class="num">${man.hoaxClaims}</span><span class="card-meta">dari situs cek fakta</span></div>
+        <div class="stat"><span class="card-meta">Kata dipelajari</span><span class="num">${(P.tokens_learned || 0).toLocaleString("id-ID")}</span><span class="card-meta">F1 titik ${P.period_f1_recent ?? "—"}</span></div>
+        <div class="stat"><span class="card-meta">Akurasi kategori viral</span><span class="num">${T.viral ? pct(T.viral.accuracy_all) : "—"}</span><span class="card-meta">${T.viral ? T.viral.examples_learned : 0} contoh</span></div>
+        <div class="stat"><span class="card-meta">Waktu olah</span><span class="num">${man.buildSeconds} dtk</span><span class="card-meta">per putaran</span></div>
       </div>
-    </div>`;
-}
-async function testServer() {
-  const out = $("rheusTest");
-  const url = $("rheusUrl").value.trim().replace(/\/+$/, "");
-  out.textContent = "Menghubungi…";
-  try {
-    const r = await fetch(url + "/v1/health");
-    const j = await r.json();
-    out.textContent = `✓ Terhubung — RheusInterface ${j.version}, TranscriptBot ${j.transcriptbot}.`;
-  } catch { out.textContent = "✗ Tidak bisa terhubung ke alamat ini."; }
+      <p class="card-meta" style="line-height:1.5">Rheus mengumpulkan berita dari media kredibel & forum, membuang hoaks yang sudah dibantah situs cek fakta, menggabungkan berita yang sama, lalu belajar dari setiap artikel baru (machine learning online).</p>
+      <div class="dialog-actions"><button class="btn btn-primary" data-action="closeArticle">Tutup</button></div>
+    </div></div>`;
 }
 
 // ====================================================================== event
 const ACTIONS = {
-  openMenu: () => setMenu(true),
-  closeMenu: () => setMenu(false),
-  startTranscribe,
-  useSample: () => { state.t.url = "https://youtu.be/dQw4w9WgXcQ"; state.t.ytError = false; render(); },
-  copyTranscript: () => { const d = state.t.data; if (!d) return; Platform.copy(state.t.view === "rapi" ? d.transcriptbot.clean.paragraphs.map((p) => `[${fmtTime(p.start)}] ${p.text}`).join("\n\n") : d.segments.map((s) => `[${fmtTime(s.start)}] ${s.text}`).join("\n")); },
+  openMenu: () => setMenu(true), closeMenu: () => setMenu(false),
+  startTranscribe: () => startTranscribe(),
+  copyTranscript: () => { const d = state.t.data; if (d) Platform.copy(state.t.view === "rapi" ? d.transcriptbot.clean.paragraphs.map((p) => `[${fmtTime(p.start)}] ${p.text}`).join("\n\n") : d.segments.map((s) => `[${fmtTime(s.start)}] ${s.text}`).join("\n")); },
   copySummary: () => state.t.data && Platform.copy(summaryText(state.t.data)),
   shareSummary: () => state.t.data && Platform.share(state.t.data.title || "Ringkasan video", summaryText(state.t.data)),
-  refreshKripto: () => { load("kripto", "/v1/news/kripto", true); render(); },
-  refreshUtama: () => { load("utama", "/v1/news/utama", true); render(); },
-  refreshViral: () => { load("viral:" + state.viral.region, "/v1/news/viral?region=" + state.viral.region, true); render(); },
-  reloadBtc: () => { delete state.data["btc:" + state.btcTf]; render(); },
-  reloadRadio: () => { delete state.data["radio:" + state.radio.region]; render(); },
   closeArticle: () => { $("dialog").innerHTML = ""; state.article = null; },
   shareArticle: () => { const a = state.article; if (a) Platform.share(a.title, `${a.title}\n${a.link}`); },
-  openSettings: () => { setMenu(false); openSettings(); },
-  testServer,
-  saveServer: () => { store.set("rheus-url", $("rheusUrl").value.trim()); state.data = {}; ACTIONS.closeArticle(); toast("Alamat server disimpan"); render(); },
-  resetServer: () => { $("rheusUrl").value = DEFAULT_RHEUS; },
-  togglePlay: () => { if (state.radio.status === "playing") audio.pause(); else { state.radio.status = "loading"; audio.play().catch(() => {}); renderPlayer(); } },
-  stopRadio: () => { audio.pause(); audio.removeAttribute("src"); audio.load(); state.radio.playing = null; render(); },
+  openStatus,
+  togglePlay: () => { haptic(); if (state.radio.status === "playing") audio.pause(); else { state.radio.status = "loading"; audio.play().catch(() => {}); renderPlayer(); } },
+  stopRadio: () => { audio.pause(); audio.removeAttribute("src"); audio.load(); state.radio.playing = null; softRender(); },
 };
-
 document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-go],[data-action],[data-article],[data-page],[data-seek],[data-open],[data-stop],[data-chip],[data-station],[data-game]");
+  const el = e.target.closest("[data-go],[data-action],[data-article],[data-page],[data-seek],[data-open],[data-stop],[data-chip],[data-station],[data-game],[data-recent]");
   if (!el) return;
   if (el.hasAttribute("data-stop") && !e.target.closest("[data-action],[data-open]")) return;
   if (el.dataset.go) { setMenu(false); go(el.dataset.go); return; }
-  if (el.dataset.open !== undefined) { e.preventDefault(); if (el.dataset.open) Platform.open(el.dataset.open); return; }
-  if (el.dataset.action && ACTIONS[el.dataset.action]) {
+  if (el.dataset.open !== undefined) { e.preventDefault(); Platform.open(el.dataset.open); return; }
+  const act = el.dataset.action;
+  if (act) {
     if (el.classList.contains("dialog-backdrop") && e.target !== el) return;
-    ACTIONS[el.dataset.action](); return;
+    if (act.startsWith("refresh:")) { haptic(); load(act.slice(8), true); softRender(); return; }
+    if (ACTIONS[act]) ACTIONS[act]();
+    return;
   }
-  if (el.dataset.article) {
-    const cat = { crypto: "Kripto", utama: state.utama.tab === "nasional" ? "Nasional" : "Internasional", viral: "Viral" }[state.page] || "";
-    openArticle(el.dataset.article, cat); return;
-  }
-  if (el.dataset.page) { state.newsPage = +el.dataset.page; render(); window.scrollTo(0, 0); return; }
+  if (el.dataset.article) { openArticle(el.dataset.article, { finansial: "Finansial", utama: state.utama.tab === "nasional" ? "Nasional" : "Internasional", viral: "Viral" }[state.page] || ""); return; }
+  if (el.dataset.page) { haptic(); state.newsPage = +el.dataset.page; softRender(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   if (el.dataset.chip) {
+    haptic();
     const v = el.dataset.val;
-    if (el.dataset.chip === "ucat") state.utama.cat = v;
-    if (el.dataset.chip === "vplat") state.viral.platform = v;
-    if (el.dataset.chip === "vcat") state.viral.cat = v;
-    state.newsPage = 1; render(); return;
+    ({ ucat: () => (state.utama.cat = v), fin: () => (state.fin.tag = v), vplat: () => (state.viral.platform = v), vcat: () => (state.viral.cat = v) })[el.dataset.chip]();
+    state.newsPage = 1; softRender(); return;
   }
   if (el.dataset.station) { playStation(el.dataset.station); return; }
   if (el.dataset.game) { go("games", el.dataset.game); return; }
+  if (el.dataset.recent) { startTranscribe("https://youtu.be/" + el.dataset.recent); return; }
   if (el.dataset.seek && state.t.data) Platform.open(`https://www.youtube.com/watch?v=${state.t.data.video_id}&t=${el.dataset.seek}s`);
 });
 document.addEventListener("input", (e) => {
-  if (e.target.id === "yt") {
-    state.t.url = e.target.value; state.t.ytError = false;
-    const b = $("ytGo"); if (b) b.disabled = !state.t.url.trim() || state.t.status === "loading";
-  }
-  if (e.target.id === "radioQ") {
-    state.radio.q = e.target.value;
-    const pos = e.target.selectionStart;
-    render();
-    const i = $("radioQ"); if (i) { i.focus(); i.setSelectionRange(pos, pos); }
-  }
+  if (e.target.id === "yt") { state.t.url = e.target.value; state.t.ytError = false; const b = $("ytGo"); if (b) b.disabled = !state.t.url.trim() || state.t.status === "loading"; }
+  if (e.target.id === "radioQ") { state.radio.q = e.target.value; const pos = e.target.selectionStart; softRender(); const i = $("radioQ"); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
   if (e.target.id === "askQ") state.ask.q = e.target.value;
 });
 document.addEventListener("change", (e) => {
   const n = e.target.name, v = e.target.value;
-  if (n === "tf") { state.btcTf = v; render(); }
-  if (n === "tview") { state.t.view = v; render(); }
-  if (n === "utab") { state.utama.tab = v; state.utama.cat = "all"; state.newsPage = 1; render(); }
-  if (n === "vregion") { state.viral = { region: v, platform: "all", cat: "all" }; store.set("viral-region", v); state.newsPage = 1; render(); }
-  if (n === "rregion") { state.radio.region = v; store.set("radio-region", v); render(); }
+  haptic();
+  if (n === "tf") { state.btcTf = v; softRender(); }
+  if (n === "tview") { state.t.view = v; softRender(); }
+  if (n === "utab") { state.utama.tab = v; state.utama.cat = "all"; state.newsPage = 1; softRender(); }
+  if (n === "vregion") { state.viral = { region: v, platform: "all", cat: "all" }; store.set("viral-region", v); state.newsPage = 1; softRender(); }
+  if (n === "rregion") { state.radio.region = v; store.set("radio-region", v); softRender(); }
 });
 document.addEventListener("submit", (e) => { if (e.target.id === "askForm") { e.preventDefault(); ask($("askQ").value); } });
 document.addEventListener("keydown", (e) => {
@@ -720,25 +754,22 @@ window.addEventListener("hashchange", () => {
   state.page = page; state.game = page === "games" ? sub : null; state.newsPage = 1;
   setMenu(false); ACTIONS.closeArticle(); render(); window.scrollTo(0, 0);
 });
-window.addEventListener("online", () => { if (state.page !== "games") render(); });
-
 Bridge.on("share", ({ text }) => {
   const m = (text || "").match(/https?:\/\/\S*(youtube\.com|youtu\.be)\S*/i);
   if (!m) { toast("Teks yang dibagikan tidak berisi link YouTube."); return; }
-  state.t.url = m[0];
   if (state.page !== "transcribe") go("transcribe");
-  setTimeout(startTranscribe, 50);
+  setTimeout(() => startTranscribe(m[0]), 60);
 });
-(function handleWebShare() {
-  const p = new URLSearchParams(location.search);
-  const m = [p.get("url"), p.get("text")].filter(Boolean).join(" ").match(/https?:\/\/\S*(youtube\.com|youtu\.be)\S*/i);
-  if (m) { history.replaceState(null, "", location.pathname + "#/transcribe"); state.t.url = m[0]; setTimeout(startTranscribe, 50); }
-})();
-if (!isApp && "serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 
-{
+// ====================================================================== mulai
+(function boot() {
   const h = parseHash();
-  state.page = h.page;
-  state.game = h.page === "games" ? h.sub : null;
-}
-render();
+  state.page = h.page; state.game = h.page === "games" ? h.sub : null;
+  render();
+  // Siapkan data di latar belakang: manifest + berita utama, agar menu terasa instan.
+  Cloud.get("manifest").then((m) => { Cloud.manifest = m; if (state.page === "home") softRender(); }).catch(() => {});
+  setTimeout(() => { ["knowledge", "utama"].forEach((n) => Cloud.get(n).then(() => { if (state.page === "home" && n === "knowledge") softRender(); }).catch(() => {})); loadModel(); }, 400);
+  const splash = $("splash");
+  setTimeout(() => splash && splash.classList.add("out"), 650);
+  setTimeout(() => splash && splash.remove(), 1200);
+})();

@@ -26,8 +26,9 @@ for sec, d in u["sections"].items():
     if sec == "internasional":
         from collections import Counter
         print("  kategori:", dict(Counter(s["category"] for s in d["hot"] + d["list"])))
-k = get("/v1/news/kripto")
-show("Kripto — hot", k["hot"], 3)
+k = get("/v1/news/finansial")
+print(f"\n[finansial] {k['stats']} tag: {[(t['id'], t['count']) for t in k['tags']]}")
+show("Finansial — hot", k["hot"], 3, lambda s: f"{s['tagLabels']} {'✔' if s['verified'] else ''}")
 for region in ("id", "us"):
     v = get(f"/v1/news/viral?region={region}")
     print(f"\n[viral {region}] {v['stats']}")

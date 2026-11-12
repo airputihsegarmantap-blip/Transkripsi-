@@ -44,8 +44,12 @@ android {
         jvmTarget = "17"
     }
     sourceSets {
-        // Antarmuka SiLengkap (web/) dipakai bersama dengan versi web — tidak ada salinan kode.
-        // Data diolah server RheusInterface (wajib online, kecuali menu Gim).
+        // Antarmuka SiLengkap (web/). Model TranscriptBot (web/model/) diunduh dari Rheus Cloud saat build.
         getByName("main").assets.srcDirs("../../web")
     }
+}
+
+dependencies {
+    // WebViewAssetLoader: menyajikan aset lewat https internal (fetch model & data lebih cepat dan aman).
+    implementation("androidx.webkit:webkit:1.12.1")
 }

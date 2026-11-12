@@ -1,0 +1,81 @@
+name: Rheus Cloud (kumpulkan data setiap 30 menit)
+
+# Rheus Cloud = GitHub Actions + CDN. Setiap putaran:
+#   1. ambil data sebelumnya (memori 48 jam + otak ML) dari branch `rheus-data`,
+#   2. kumpulkan berita/data baru, saring hoaks, belajar, hapus data > 48 jam,
+#   3. terbitkan JSON siap pakai ke branch `rheus-data` (satu commit, tanpa riwayat menumpuk),
+#   4. kosongkan cache jsDelivr agar aplikasi langsung mendapat data terbaru.
+# Catatan: jadwal (schedule) GitHub hanya aktif dari branch default (main).
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+  push:
+    paths:
+      - "rheus/**"
+      - ".github/workflows/rheus-cloud.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rheus-cloud
+  cancel-in-progress: false
+
+jobs:
+  cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: rheus/requirements.txt
+
+      - name: Pasang dependensi
+        run: pip install -r rheus/requirements.txt
+
+      - name: Ambil memori & otak Rheus sebelumnya
+        run: |
+          git clone --depth 1 --branch rheus-data "https://github.com/${{ github.repository }}.git" data 2>/dev/null || mkdir -p data
+          rm -rf data/.git
+          mkdir -p data/v2
+          ls -la data/v2 || true
+
+      - name: Pelatihan awal (hanya bila otak belum ada)
+        working-directory: rheus
+        run: |
+          if [ ! -f ../data/v2/brain.pkl ]; then
+            python -m rheus.train --wiki-pages 1200 --epochs 2 --out ../data/v2/brain.pkl
+            rm -f ../data/v2/heldout.json
+          fi
+
+      - name: Kumpulkan & olah data
+        working-directory: rheus
+        run: python -m rheus.cloud --out ../data/v2
+
+      - name: Terbitkan ke branch rheus-data
+        run: |
+          cd data
+          cat > README.md <<'MD'
+          # Rheus Cloud — data
+          Dibuat otomatis oleh `.github/workflows/rheus-cloud.yml`. Jangan diedit manual.
+          Disajikan ke aplikasi SiLengkap lewat raw.githubusercontent.com & cdn.jsdelivr.net.
+          MD
+          git init -q -b rheus-data
+          git config user.name "Rheus Cloud"
+          git config user.email "rheus-cloud@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Rheus Cloud: data $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" rheus-data
+          du -sh v2 v2/*
+
+      - name: Kosongkan cache CDN
+        run: |
+          for f in manifest utama finansial viral-id viral-us btc-24j btc-7h btc-30h radio-id radio-us knowledge model/meta model/case; do
+            curl -s -o /dev/null -w "%{http_code} $f\n" "https://purge.jsdelivr.net/gh/${{ github.repository }}@rheus-data/v2/$f.json" || true
+          done

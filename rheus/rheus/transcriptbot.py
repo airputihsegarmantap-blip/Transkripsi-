@@ -574,7 +574,7 @@ def to_markdown(d: dict) -> str:
         lines += ["", "## Kesimpulan", d["conclusion"]]
     if d["keywords"]:
         lines += ["", "## Kata Kunci", ", ".join(d["keywords"])]
-    lines += ["", f"_Diringkas oleh TranscriptBot {VERSION} (RheusInterface)._"]
+    lines += ["", f"_Diringkas oleh TranscriptBot {VERSION} (Rheus)._"]
     return "\n".join(lines)
 
 

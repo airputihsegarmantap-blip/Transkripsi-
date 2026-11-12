@@ -8,18 +8,22 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
 import android.widget.Toast
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
 /**
- * SiLengkap: antarmuka HTML (web/ + shared/ di assets) ditampilkan di WebView.
- * Data diolah server RheusInterface. Kotlin hanya mengambil subtitle YouTube langsung dari HP
- * (IP server cloud sering diblokir YouTube) dan menyediakan salin/bagikan/buka tautan.
+ * SiLengkap: antarmuka HTML (folder web/ di assets) ditampilkan di WebView lewat alamat https
+ * internal (WebViewAssetLoader) — sehingga model TranscriptBot & data Rheus Cloud bisa dimuat cepat.
+ * Kotlin mengambil subtitle YouTube langsung dari HP dan menyediakan salin/bagikan/getar.
  */
 class MainActivity : Activity() {
 
@@ -37,9 +41,15 @@ class MainActivity : Activity() {
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = true
         web.webChromeClient = WebChromeClient()
+        val assets = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
         web.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                assets.shouldInterceptRequest(request.url)
+
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-                if (url.startsWith("file:///android_asset/")) return false
+                if (url.startsWith("https://appassets.androidplatform.net/")) return false
                 if (url.startsWith("https://fonts.")) return false
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 return true
@@ -52,7 +62,7 @@ class MainActivity : Activity() {
         }
         web.addJavascriptInterface(Bridge(), "Native")
         handleIntent(intent)
-        web.loadUrl("file:///android_asset/index.html")
+        web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -106,6 +116,12 @@ class MainActivity : Activity() {
                     reject(id, "Gagal mengambil transkrip: ${e.message}")
                 }
             }
+        }
+
+        /** Getaran halus untuk umpan balik sentuhan. */
+        @JavascriptInterface
+        fun haptic() {
+            runOnUiThread { web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) }
         }
 
         @JavascriptInterface

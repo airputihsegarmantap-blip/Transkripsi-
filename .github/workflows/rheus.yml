@@ -1,4 +1,4 @@
-name: RheusInterface (uji, pelatihan, evaluasi, benchmark)
+name: Rheus (uji, pelatihan, evaluasi, benchmark)
 
 on:
   workflow_dispatch:
@@ -34,6 +34,16 @@ jobs:
         working-directory: rheus
         run: python -m rheus.train --wiki-pages 2000 --epochs 2 --out rheus/models/brain.pkl
 
+      - name: Paritas TranscriptBot 3 — versi HP (JS) vs Python
+        run: python eval/parity_tb3.py
+
+      - name: Rheus Cloud — satu putaran dengan sumber sungguhan
+        working-directory: rheus
+        run: |
+          mkdir -p /tmp/cloud && cp rheus/models/brain.pkl /tmp/cloud/
+          time python -m rheus.cloud --out /tmp/cloud > /tmp/cloud.log
+          python -c "import json;m=json.load(open('/tmp/cloud/manifest.json'));print({k:m[k] for k in ('buildSeconds','stories','hoaxClaims','timings')})"
+
       - name: Evaluasi TranscriptBot 3 vs 2.0
         run: python eval/eval_v3.py
 
@@ -68,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build image RheusInterface
+      - name: Build image Rheus
         run: docker build --build-arg RHEUS_TRAIN_PAGES=200 -t rheus ./rheus
       - name: Jalankan & cek
         run: |

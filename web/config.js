@@ -1,5 +1,8 @@
-// Alamat server RheusInterface bawaan. Bisa diubah di aplikasi: Menu → Pengaturan server.
-// Setelah deploy (lihat README), ganti dengan alamat server milikmu.
+// Rheus Cloud: data siap pakai yang dikumpulkan GitHub Actions setiap 30 menit (branch `rheus-data`)
+// dan disajikan lewat dua CDN. Aplikasi memakai yang paling cepat merespons.
 window.SILENGKAP_CONFIG = {
-  rheusUrl: "https://silengkap-rheus.onrender.com",
+  cloud: [
+    "https://raw.githubusercontent.com/airputihsegarmantap-blip/Transkripsi-/rheus-data/v2/",
+    "https://cdn.jsdelivr.net/gh/airputihsegarmantap-blip/Transkripsi-@rheus-data/v2/",
+  ],
 };
