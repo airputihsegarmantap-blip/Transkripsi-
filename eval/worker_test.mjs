@@ -51,6 +51,8 @@ assert.match(r.text, /Harga beras naik \[1\]/);
 const sys = lastAI.opts.messages[0].content;
 assert.match(sys, /\[1\] Harga beras naik di Jakarta — Kompas \(terverifikasi\)/);
 assert.match(sys, /Wikipedia/);
+assert.match(sys, /\(belum terverifikasi\)/);          // sumber tanpa konfirmasi ditandai
+assert.match(sys, /Jangan pernah menyatakannya sebagai fakta/);
 assert.equal(lastAI.opts.stream, true);
 
 // pertanyaan bitcoin → harga live masuk konteks

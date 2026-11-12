@@ -96,7 +96,7 @@ async function btcPrice() {
 export async function gatherContext(env, q) {
   const wantsBtc = /\b(bitcoin|btc|kripto|crypto)\b/i.test(q);
   const [docs, wikiId, btc] = await Promise.all([knowledge(env), wikipedia(q, "id"), wantsBtc ? btcPrice() : null]);
-  const news = rank(docs, q, 6).map((d) => ({ t: d.t, x: d.x, s: d.s + (d.v ? " (terverifikasi)" : ""), l: d.l, ts: d.ts }));
+  const news = rank(docs, q, 6).map((d) => ({ t: d.t, x: d.x, s: d.s + (d.v ? " (terverifikasi)" : " (belum terverifikasi)"), l: d.l, ts: d.ts }));
   let wiki = wikiId;
   if (!wiki.length) wiki = await wikipedia(q, "en");
   return [btc, ...news, ...wiki.slice(0, 2)].filter(Boolean);
@@ -114,7 +114,9 @@ Aturan:
 - Jawab dalam Bahasa Indonesia yang santai tapi jelas, kecuali pengguna memakai bahasa lain.
 - Untuk fakta terkini (berita, harga, peristiwa) gunakan HANYA KONTEKS di bawah, dan sebut sumbernya dengan nomor seperti [1].
 - Jika konteks tidak memuat jawabannya, katakan terus terang bahwa kamu belum menemukan informasinya. Jangan mengarang fakta, angka, atau kutipan.
-- Berita berlabel "terverifikasi" diliput ≥2 media kredibel; utamakan itu.
+- Berita berlabel "(terverifikasi)" diliput ≥2 media kredibel; utamakan itu.
+- Berita berlabel "(belum terverifikasi)" HANYA boleh disampaikan sebagai kabar: pakai kata "dikabarkan", "menurut <sumber>", atau "belum dikonfirmasi". Jangan pernah menyatakannya sebagai fakta pasti.
+- Pertahankan kata hati-hati dari sumber ("diduga", "dikabarkan", "rencananya", "mengaku"). Jangan mengubah dugaan atau rencana menjadi kejadian yang sudah terjadi.
 - Soal investasi/kripto: beri informasi, bukan saran keuangan.
 - Jawaban ringkas: maksimal ±150 kata kecuali diminta lebih panjang. Pakai poin bila membantu.
 
