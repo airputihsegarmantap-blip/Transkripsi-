@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "web/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Satu build per branch; build lama dibatalkan agar rilis "apk-terbaru" tidak bentrok.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ambil model TranscriptBot terbaru dari Rheus Cloud
+        run: |
+          mkdir -p web/model
+          for f in punct.bin case.json meta.json; do
+            curl -sfL -o "web/model/$f" "https://raw.githubusercontent.com/${{ github.repository }}/rheus-data/v2/model/$f" || echo "model $f belum tersedia (aplikasi memakai mode cadangan)"
+          done
+          ls -la web/model
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Build APK
+        run: gradle -p android assembleRelease --stacktrace
+
+      - name: Siapkan file
+        run: cp android/app/build/outputs/apk/release/app-release.apk SiLengkap.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SiLengkap-apk
+          path: SiLengkap.apk
+
+      - name: Terbitkan ke halaman Releases (unduhan langsung dari HP)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=apk-terbaru
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" SiLengkap.apk \
+            --target "$GITHUB_SHA" \
+            --title "SiLengkap APK (build #$GITHUB_RUN_NUMBER)" \
+            --notes "Unduh **SiLengkap.apk** di bawah, lalu buka file-nya di HP Android untuk memasang. Dibangun dari branch \`$GITHUB_REF_NAME\` commit $GITHUB_SHA." \
+            --prerelease

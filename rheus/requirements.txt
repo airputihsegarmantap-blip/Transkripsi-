@@ -1,0 +1,11 @@
+# RheusInterface server — library open-source dari GitHub:
+fastapi>=0.115            # github.com/fastapi/fastapi      — API async
+uvicorn[standard]>=0.30   # github.com/encode/uvicorn       — server ASGI cepat (uvloop)
+httpx>=0.27               # github.com/encode/httpx         — HTTP async, ambil banyak sumber paralel
+orjson>=3.10              # github.com/ijl/orjson           — JSON sangat cepat
+lxml>=5.0                 # github.com/lxml/lxml            — parser XML/RSS berbasis C
+numpy>=1.26               # github.com/numpy/numpy          — perhitungan vektor (analisa Bitcoin, TextRank)
+river>=0.21               # github.com/online-ml/river      — machine learning online (belajar terus)
+datasketch>=1.6           # github.com/ekzhu/datasketch     — MinHash LSH, deduplikasi berita cepat
+rank-bm25>=0.2.2          # github.com/dorianbrown/rank_bm25 — pencarian untuk "Tanya Rheus"
+youtube-transcript-api>=1.2.5  # github.com/jdepoix/youtube-transcript-api

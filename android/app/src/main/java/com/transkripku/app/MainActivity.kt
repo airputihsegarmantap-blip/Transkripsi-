@@ -1,0 +1,156 @@
+package com.transkripku.app
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.view.HapticFeedbackConstants
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
+import android.widget.Toast
+import org.json.JSONObject
+import java.util.concurrent.Executors
+
+/**
+ * SiLengkap: antarmuka HTML (folder web/ di assets) ditampilkan di WebView lewat alamat https
+ * internal (WebViewAssetLoader) — sehingga model TranscriptBot & data Rheus Cloud bisa dimuat cepat.
+ * Kotlin mengambil subtitle YouTube langsung dari HP dan menyediakan salin/bagikan/getar.
+ */
+class MainActivity : Activity() {
+
+    private lateinit var web: WebView
+    private val io = Executors.newCachedThreadPool()
+    private var pendingShare: String? = null
+    private var pageReady = false
+
+    @SuppressLint("SetJavaScriptEnabled")
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        web = WebView(this)
+        setContentView(web)
+        web.settings.javaScriptEnabled = true
+        web.settings.domStorageEnabled = true
+        web.settings.mediaPlaybackRequiresUserGesture = true
+        web.webChromeClient = WebChromeClient()
+        val assets = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                assets.shouldInterceptRequest(request.url)
+
+            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                if (url.startsWith("https://appassets.androidplatform.net/")) return false
+                if (url.startsWith("https://fonts.")) return false
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                return true
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                pageReady = true
+                pendingShare?.let { emit("share", JSONObject().put("text", it)); pendingShare = null }
+            }
+        }
+        web.addJavascriptInterface(Bridge(), "Native")
+        handleIntent(intent)
+        web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        if (pageReady) emit("share", JSONObject().put("text", text)) else pendingShare = text
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (web.canGoBack()) web.goBack() else super.onBackPressed()
+    }
+
+    override fun onDestroy() {
+        io.shutdownNow()
+        web.destroy()
+        super.onDestroy()
+    }
+
+    // --- Mengirim hasil ke JavaScript -------------------------------------------------
+
+    private fun js(code: String) = runOnUiThread { web.evaluateJavascript(code, null) }
+
+    private fun resolve(id: Int, data: Any) =
+        js("window.Bridge && Bridge.resolve($id, ${JSONObject.quote(data.toString())})")
+
+    private fun reject(id: Int, message: String) =
+        js("window.Bridge && Bridge.reject($id, ${JSONObject.quote(message)})")
+
+    private fun emit(event: String, data: JSONObject) =
+        js("window.Bridge && Bridge.emit(${JSONObject.quote(event)}, ${JSONObject.quote(data.toString())})")
+
+    // --- Jembatan JavaScript -> Kotlin ------------------------------------------------
+
+    inner class Bridge {
+        @JavascriptInterface
+        fun getTranscript(id: Int, input: String) {
+            io.execute {
+                try {
+                    resolve(id, YouTubeTranscript.fetch(input))
+                } catch (e: YouTubeTranscript.TranscriptException) {
+                    reject(id, e.message ?: "Gagal mengambil transkrip.")
+                } catch (e: java.net.UnknownHostException) {
+                    reject(id, "Tidak ada koneksi internet.")
+                } catch (e: Exception) {
+                    reject(id, "Gagal mengambil transkrip: ${e.message}")
+                }
+            }
+        }
+
+        /** Getaran halus untuk umpan balik sentuhan. */
+        @JavascriptInterface
+        fun haptic() {
+            runOnUiThread { web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) }
+        }
+
+        @JavascriptInterface
+        fun openUrl(url: String) {
+            if (!url.startsWith("https://") && !url.startsWith("http://")) return
+            runOnUiThread {
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+            }
+        }
+
+        @JavascriptInterface
+        fun copy(text: String) {
+            runOnUiThread {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("SiLengkap", text))
+                Toast.makeText(this@MainActivity, "Tersalin", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        @JavascriptInterface
+        fun share(title: String, text: String) {
+            runOnUiThread {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, title)
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                startActivity(Intent.createChooser(send, "Bagikan / simpan"))
+            }
+        }
+    }
+}
