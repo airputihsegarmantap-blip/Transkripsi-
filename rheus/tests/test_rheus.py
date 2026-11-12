@@ -303,3 +303,13 @@ def test_js_constants_up_to_date():
 
     path = Path(__file__).resolve().parents[2] / "web" / "tb3-const.js"
     assert path.read_text(encoding="utf-8") == export_js.render(), "Jalankan: python -m rheus.export_js ../web/tb3-const.js"
+
+
+def test_story_headline_prefers_credible_source():
+    from rheus import news
+
+    now = NOW
+    g = [{"title": "Saudi serang fasilitas rudal Houthi", "link": "https://blog/x", "source": "CentralBatam", "ts": now - 600, "excerpt": "", "coverage": 0, "related": []},
+         {"title": "Saudi serang fasilitas rudal Houthi di Yaman", "link": "https://antaranews.com/x", "source": "Antara", "ts": now - 900, "excerpt": "", "coverage": 0, "related": []}]
+    s = news._story(g, now, "id", [], {})
+    assert s["source"] == "Antara" and s["link"] == "https://antaranews.com/x" and s["credible"]

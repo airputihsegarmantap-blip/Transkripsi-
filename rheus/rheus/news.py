@@ -147,6 +147,9 @@ def _learn_from(brain: Brain, items: list[dict]) -> int:
 
 
 def _story(group: list[dict], now: float, region: str, forum_sets: list[set], extra: dict) -> dict:
+    # Judul, tautan & sumber utama diambil dari media kredibel bila ada di kelompok ini.
+    primary = next((g for g in group if sources.is_credible(g.get("source", ""), region)), group[0])
+    group = [primary] + [g for g in group if g is not primary]
     lead = next((g for g in group if g["excerpt"]), group[0])
     srcs = list(dict.fromkeys(g["source"] for g in group if g["source"]))
     credible = [s for s in srcs if sources.is_credible(s, region)]
